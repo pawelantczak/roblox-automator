@@ -1,0 +1,5 @@
+/target
+/temp_watcher
+config.json
+*.zip
+RELEASE_NOTES.md
