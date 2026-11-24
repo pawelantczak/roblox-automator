@@ -1,237 +1,127 @@
-# Specification & Agent Implementation Prompt: Roblox Automator (Windows)
-# Multi-Instance, System Tray Daemon & ps99clan.xyz UI Architecture
+Keep native UI/WebView ownership on the main thread
 
-> **Instructions for the AI Agent on Windows**:
-> You are tasked with implementing the **Roblox Automator** on Windows.
-> **Key Architecture Decisions**:
-> - **Window Recovery Scope**: Strictly rely on existing open windows. Do **NOT** attempt external process relaunching.
-> - **High-DPI Awareness**: Set Per-Monitor V2 DPI awareness to prevent coordinate drift across scaling (125%, 150%).
-> - **Screen Saver / Sleep Prevention**: Use `SetThreadExecutionState` to prevent Windows from locking or sleeping.
-> - **Anti-AFK Action**: Configurable between background `Spacebar` (jump) and `LeftClick`.
-> - **Discord Webhook**: Simple incoming webhook HTTP POST (zero credentials / OAuth required).
+Create and maintain the tao event loop, window, tray, menu, and wry WebView from the main thread.
+Perform polling, capture, OCR, input automation, and reconnect operations on dedicated worker threads.
+Never execute SendInput, PrintWindow, Win32 blocking calls, or OCR from the event-loop callback.
+Use EventLoopProxy for worker-to-UI messages only.
+Separate UI, orchestration, and platform code
 
----
+Organize code into layers:
+ui/: window, WebView, tray, IPC, and event-loop lifecycle
+engine/: monitoring state machine and scheduling
+capture/, ocr/, input/, window/: platform services
+models/: typed configuration and IPC contracts
+Do not let HTML/JavaScript execute platform actions directly.
+Keep Win32 HWND handles and window identities out of JavaScript.
+Move application behavior out of main.rs; keep main.rs as composition and startup code.
+Replace raw-string IPC with typed commands and events
 
-## 1. System Tray & Window Lifecycle
+Define Rust serializable command and event types instead of matching free-form JSON strings.
+Deserialize commands defensively and never trust UI input.
+Validate numeric ranges, place IDs, keyword lists, and configuration values.
+Use one-way UI updates for telemetry and one explicit request/response pattern for configuration.
+Separate command/action names from UI implementation details.
+Decouple the worker loop from UI refresh
 
-1. **Minimize to Tray Behavior**:
-   - When the user clicks the minimize button or the window close (`X`) button:
-     - `window.set_visible(false)`
-     - App continues running background anti-AFK, monitoring, and recovery.
-2. **Tray Icon Near Clock (`tray-icon` crate)**:
-   - Lives in the taskbar notification area.
-   - Dynamic icon state:
-     - **Cyan/Green icon**: Actively monitoring.
-     - **Amber icon**: Reconnecting / recovering an account.
-     - **Slate/Grey icon**: Paused.
-3. **Tray Interactions**:
-   - **Left Click**: Restores and focuses the dashboard window (`window.set_visible(true); window.set_focus()`).
-   - **Right Click**: Context menu:
-     - `Show Dashboard`
-     - `Pause Monitoring` / `Resume Monitoring`
-     - `---` (separator)
-     - `Exit Automator` (graceful shutdown)
+Monitor windows and refresh UI independently.
+Do not block workers while updating the WebView.
+Use a bounded channel or queued proxy events instead of spawning unbounded work.
+Coalesce duplicate telemetry updates.
+Add a configurable UI refresh interval, typically 500–1000 ms.
+Skip engine work completely while the watcher is stopped.
+Use bounded, predictable concurrency
 
----
+Assign each window a stable instance ID and cancel or supersede stale work.
+Process instances serially or with a small fixed worker pool rather than one task per window.
+Protect shared state with targeted mutexes or lock-free atomics.
+Keep locks held only for copying or short updates; never hold a lock during OCR or input.
+Ensure shutdown atomics and join handles stop all workers cleanly.
+Split expensive capture/OCR operations
 
-## 2. Core Functional Specifications
+Capture frames at a lower monitoring cadence than UI updates.
+Cache thumbnails, OCR results, and screenshots instead of recomputing or encoding every poll.
+Avoid JPEG/base64 encoding on the main thread.
+Compress thumbnails with bounded dimensions and JPEG quality.
+Consider region-only OCR and frame-difference detection before invoking full OCR.
+Add per-service timeouts and skip work that falls behind.
+Make native automation robust and testable
 
-| Feature | Execution Mode | Mechanism | User Impact |
-|---|---|---|---|
-| **System Tray Hide** | Taskbar notification area near clock | `tray-icon` crate + `tao` window events | Keeps taskbar clean, runs in background |
-| **Sleep / Lock Prevention** | OS Keep-Alive | Win32 `SetThreadExecutionState` | Prevents screensaver / lock screen |
-| **High-DPI Scaling Guard** | Per-Monitor V2 DPI | `SetProcessDpiAwarenessContext` | Accurate click coordinates on 125%/150% displays |
-| **Buried Anti-AFK** | Background Spacebar or Click every 5 min | `PostMessageW(hwnd, WM_KEYDOWN VK_SPACE)` | **Zero cursor movement**, windows stay buried |
-| **Discord Notifications** | Incoming Webhook POST (JSON) | Direct HTTP request via `reqwest` | Instant pings on disconnect/recovery, 0 login |
-| **"Ok!" Notice Dismiss** | Detect `"Ok!"` button after key actions and click | OCR search for `"Ok!"` -> `SendInput` | Dismisses blocking in-game dialogs |
-| **Two-Stage Recovery** | Closed-loop Reconnect -> Event text-to-icon teleport | `SendInput` loop with OCR verification | Full recovery + instant re-bury |
+Wrap PrintWindow, BitBlt, SendInput, SetForegroundWindow, and process/window discovery in service APIs.
+Prefer stable window IDs and process IDs; track Windows across title or geometry changes.
+Avoid modifying shared cursor and foreground state unnecessarily.
+Remove or isolate simulated random delays and jitter.
+Centralize focus, mouse, and keyboard operations under an input lock.
+Define explicit failure states for focus, capture, process launch, and reconnect failures.
+Add a real application state machine
 
----
+Track at least Idle, Discovering, Healthy, Disconnected, Reconnecting, Navigating, and Error.
+Store transition timestamps and cooldowns per window.
+Prevent duplicate reconnect or anti-AFK actions with per-instance locks.
+Make reconnect cooldowns deterministic rather than relying on elapsed state from coarse polling.
+Record restart and OCR failure counts for diagnostics.
+Make scheduling and cadence data-driven
 
-## 3. Technology Stack: Rust (2021 Edition)
+Separate scan interval, UI interval, reconnect cooldown, and anti-AFK interval.
+Stop anti-AFK timers while the watcher is idle.
+Initialize timers safely for newly discovered processes.
+Use deadlines or Instant values instead of repeatedly reconstructing countdown strings.
+Do not interpret UI-local countdown formatting as backend state.
+Reduce lock contention
 
-```toml
-[package]
-name = "roblox-automator"
-version = "0.9.0"
-edition = "2021"
+Replace broad shared locks with a single snapshot or immutable state model.
+Build UI state in the worker and publish snapshots instead of exposing mutable engine internals.
+Store logs with a bounded queue and clear/update operations.
+Update configuration atomically and log when effective configuration changes.
+Improve configuration handling
 
-[dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_HiDpi",
-    "Win32_Graphics_Gdi",
-    "Win32_System_Threading",
-    "Win32_System_Power",
-    "Win32_System_ProcessStatus",
-    "Win32_Security",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Media_Ocr",
-    "Graphics_Capture",
-    "Graphics_DirectX_Direct3D11",
-    "Storage_Streams"
-] }
+Store configuration as validated typed Rust data.
+Separate default, persisted, and runtime configuration.
+Apply a versioned JSON schema and migration strategy.
+Validate paths and numerical ranges before saving.
+Write atomically instead of overwriting configuration in place.
+Remove hard-coded fallback keywords/place IDs where possible.
+Bundle and secure WebView assets
 
-# Direct3D 11 Capture
-windows-capture = "1.2"
+Bundle HTML, JavaScript, Tailwind CSS, and icons locally.
+Do not load application dependencies from CDNs.
+Configure an appropriate WebView2 origin/content security policy.
+Disable remote navigation and development features in release builds.
+Use JS bridging for native commands only; do not expose a general command-execution API.
+Escape or build all dynamic HTML safely.
+Improve shutdown and lifecycle handling
 
-# Native WebView2 GUI & System Tray
-wry = "0.41"
-tao = "0.28"
-tray-icon = "0.14"
+Stop workers before closing the WebView.
+Join or signal every thread during shutdown.
+Release the named mutex, sleep-prevention request, tray state, and timers.
+Handle close-to-tray separately from application exit.
+Restore foreground and cursor state reliably even when automation is interrupted.
+Improve reliability and observability
 
-# HTTP Client for Discord Webhook
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+Add structured logs with timestamps and instance IDs.
+Add counters for captures, OCR runs, reconnect attempts, anti-AFK jumps, and failures.
+Avoid logging secrets or large frame data.
+Add diagnostic export or a developer-only diagnostics view.
+Include application and WebView2 runtime versions in diagnostic information.
+Add testing where it matters
 
-# Concurrency & Config
-tokio = { version = "1.38", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
-chrono = "0.4"
-anyhow = "1.0"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-```
+Unit test classifier and configuration parsing.
+Unit test state transitions and cooldown calculations.
+Model OCR and capture results behind traits.
+Test IPC serialization and UI update snapshots.
+Use synthetic frame fixtures and mock window services for automation tests.
+Keep hardware/Win32 integration tests Windows-only and clearly separated.
+Optimize packaging and releases
 
----
+Continue building on Windows and publishing standalone binaries.
+Add architecture and runtime checks before launch.
+Ensure WebView2 is available or provide a clear bootstrap/error path.
+Add code signing and reproducible versioning before broader distribution.
+Package assets inside the executable or release archive without relying on the repository layout.
+Preserve maintainability in the data flow
 
-## 4. Key Implementation Details
-
-### 1. High-DPI & Sleep Prevention (`src/main.rs`)
-```rust
-use windows::Win32::UI::HiDpi::*;
-use windows::Win32::System::Power::*;
-
-pub fn initialize_os_environment() {
-    unsafe {
-        // Prevent coordinate drift on displays with 125%, 150%, or 200% scaling
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
-        // Keep system awake and prevent screen saver / lock screen from pausing DWM
-        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
-    }
-}
-```
-
-### 2. Configurable Anti-AFK (`src/input.rs`)
-```rust
-pub fn send_background_anti_afk(hwnd: HWND, mode: &str) {
-    unsafe {
-        match mode {
-            "spacebar" => {
-                // Post Jump key without moving cursor or stealing focus
-                PostMessageW(hwnd, WM_KEYDOWN, WPARAM(0x20), LPARAM(0)); // VK_SPACE
-                std::thread::sleep(Duration::from_millis(50));
-                PostMessageW(hwnd, WM_KEYUP, WPARAM(0x20), LPARAM(0));
-            }
-            _ => {
-                // Default: background center click
-                let lparam = ((300 as u32) << 16) | (400 as u32 & 0xFFFF);
-                PostMessageW(hwnd, WM_LBUTTONDOWN, WPARAM(1), LPARAM(lparam as isize));
-                std::thread::sleep(Duration::from_millis(50));
-                PostMessageW(hwnd, WM_LBUTTONUP, WPARAM(0), LPARAM(lparam as isize));
-            }
-        }
-    }
-}
-```
-
-### 3. Discord Webhook Notifications (`src/notifications.rs`)
-No authentication or credentials required. The user creates a webhook in their Discord channel and pastes the URL in `config.toml`.
-```rust
-pub async fn send_discord_alert(webhook_url: &str, message: &str) {
-    if webhook_url.is_empty() { return; }
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "username": "Roblox Automator",
-        "avatar_url": "https://ps99clan.xyz/favicon.ico",
-        "content": message
-    });
-    let _ = client.post(webhook_url).json(&payload).send().await;
-}
-```
-
----
-
-## 5. Configuration (`config.toml`)
-```toml
-[general]
-scan_interval_seconds = 5
-anti_afk_interval_seconds = 300
-anti_afk_mode = "spacebar"       # "spacebar" (jump) or "left_click"
-prevent_system_sleep = true
-
-[ui]
-theme = "dark-cyan"
-window_width = 1040
-window_height = 720
-close_to_tray = true
-start_minimized_to_tray = false
-
-[notifications]
-# Paste your Discord channel incoming webhook URL here (optional)
-discord_webhook_url = ""
-notify_on_disconnect = true
-notify_on_recovery = true
-
-[reconnect_loop]
-max_click_attempts = 15
-retry_interval_ms = 1000
-activation_delay_ms = 300
-
-[event_teleport]
-enabled = true
-max_wait_seconds = 45
-text_label = "Pumpkin"
-click_offset_y = -40
-
-[[actions.keys]]
-key = "1"
-virtual_key_code = 0x31
-cooldown_seconds = 60
-description = "Consumable Potion"
-
-[[actions.keys]]
-key = "E"
-virtual_key_code = 0x45
-cooldown_seconds = 0
-description = "Interact / Ability (Every cycle)"
-
-[actions.notice_dismiss]
-auto_dismiss_enabled = true
-target_button_text = "Ok!"
-penalty_cooldown_seconds = 10
-
-[vision]
-reconnect_button_text = "Reconnect"
-disconnect_phrases = [
-    "disconnected",
-    "lost connection",
-    "error code",
-    "server was shut down",
-    "please reconnect"
-]
-```
-
----
-
-## 6. Implementation Milestones for the Agent on Windows
-
-1. **Step 1: Multi-HWND Scanner & OS Environment** (`src/instances.rs`, `src/main.rs`)
-   - Initialize Per-Monitor V2 DPI awareness and `SetThreadExecutionState`.
-   - Enumerate all running Roblox windows using `EnumWindows`.
-2. **Step 2: Full-Window Buried Capture & Vision** (`src/vision.rs`)
-   - Capture full frame via `windows-capture` and locate "Reconnect", event label, and "Ok!" button via WinRT OCR.
-3. **Step 3: Two-Stage Recovery Pipeline** (`src/input.rs`)
-   - Reconnect loop -> Event teleport -> Re-bury window to `HWND_BOTTOM`.
-4. **Step 4: Buried Anti-AFK (Spacebar/Click) & Actions** (`src/input.rs`, `src/actions.rs`)
-   - Test background spacebar/jump without cursor movement; handle key cooldowns and "Ok!" dismiss.
-5. **Step 5: System Tray & Discord Webhook** (`src/tray.rs`, `src/notifications.rs`)
-   - Implement tray icon near clock and HTTP webhook dispatch for alerts.
-6. **Step 6: WebView2 Dark Dashboard & IPC** (`src/ui.rs`, `ui/index.html`)
-   - Implement `wry` + `tao` window hosting the ps99clan.xyz dark cyberpunk dashboard.
-7. **Step 7: Release Build**
-   - Run `cargo build --release` to produce a single self-contained `roblox-automator.exe`.
+main.rs: startup/composition only
+UI thread: event loop and native UI state
+Worker: discovery, monitoring, state transitions, and native operations
+IPC: typed commands and snapshots
+Domain models: configuration and engine state
+HTML/JS: presentation and user interactions only
