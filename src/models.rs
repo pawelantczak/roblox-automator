@@ -2,8 +2,80 @@ use serde::{Deserialize, Serialize};
 
 // MARK: - Configuration Model
 
+pub fn default_reconnect_button_phrases() -> Vec<String> {
+    vec![
+        "Reconnect".to_string(),
+        "Retry".to_string(),
+        "Reconectar".to_string(),
+        "Połącz ponownie".to_string(),
+        "Ponów".to_string(),
+        "Erneut verbinden".to_string(),
+        "Erneut versuchen".to_string(),
+        "Se reconnecter".to_string(),
+        "Reconnecter".to_string(),
+        "Réessayer".to_string(),
+        "Riconnetti".to_string(),
+        "Переподключиться".to_string(),
+        "Повторить".to_string(),
+        "Yeniden Bağlan".to_string(),
+        "Sambung Ulang".to_string(),
+        "Kết nối lại".to_string(),
+        "再接続".to_string(),
+        "다시 연결".to_string(),
+        "重新连接".to_string(),
+        "重新連接".to_string(),
+    ]
+}
+
+pub fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrVec;
+
+    impl<'de> serde::de::Visitor<'de> for StringOrVec {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or a list of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            let list: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if list.is_empty() {
+                Ok(vec![value.trim().to_string()])
+            } else {
+                Ok(list)
+            }
+        }
+
+        fn visit_seq<S>(self, mut visitor: S) -> Result<Self::Value, S::Error>
+        where
+            S: serde::de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(elem) = visitor.next_element::<String>()? {
+                let trimmed = elem.trim().to_string();
+                if !trimmed.is_empty() {
+                    vec.push(trimmed);
+                }
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrVec)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct Config {
     pub check_interval_seconds: f64,
     pub reconnect_cooldown_seconds: f64,
@@ -14,7 +86,17 @@ pub struct Config {
     pub auto_teleport_to_event: bool,
     pub anti_afk_enabled: bool,
     pub anti_afk_interval_seconds: f64,
-    pub reconnect_button_text: String,
+    #[serde(
+        default = "default_reconnect_button_phrases",
+        alias = "reconnectButtonText",
+        alias = "reconnectButtonPhrases",
+        alias = "disconnectButtonPhrases",
+        alias = "disconnectButtonKeywords",
+        alias = "reconnectButtonKeywords",
+        alias = "reconnect_button_text",
+        deserialize_with = "deserialize_string_or_vec"
+    )]
+    pub reconnect_button_phrases: Vec<String>,
     pub disconnect_keywords: Vec<String>,
     pub event_target_keywords: Vec<String>,
     pub ignore_phrases: Vec<String>,
@@ -32,21 +114,29 @@ impl Default for Config {
             auto_teleport_to_event: true,
             anti_afk_enabled: true,
             anti_afk_interval_seconds: 600.0, // 10 minutes
-            reconnect_button_text: "Reconnect".to_string(),
+            reconnect_button_phrases: default_reconnect_button_phrases(),
             disconnect_keywords: vec![
                 "disconnected".to_string(),
                 "lost connection".to_string(),
-                "error code: 277".to_string(),
-                "error code: 279".to_string(),
-                "error code: 267".to_string(),
-                "error code: 271".to_string(),
-                "error code: 268".to_string(),
-                "error code: 273".to_string(),
-                "server was shut down".to_string(),
-                "server has closed".to_string(),
-                "please reconnect".to_string(),
                 "connection lost".to_string(),
                 "connection closed".to_string(),
+                "please reconnect".to_string(),
+                "server was shut down".to_string(),
+                "server has closed".to_string(),
+                "join error".to_string(),
+                "http error".to_string(),
+                "error code:".to_string(),
+                "error code".to_string(),
+                "rozłączono".to_string(),
+                "utracono połączenie".to_string(),
+                "kod błędu:".to_string(),
+                "kod błędu".to_string(),
+                "desconectado".to_string(),
+                "código de error:".to_string(),
+                "verbindung getrennt".to_string(),
+                "fehlercode:".to_string(),
+                "déconnecté".to_string(),
+                "code d'erreur:".to_string(),
             ],
             event_target_keywords: vec!["turkey hunt".to_string()],
             ignore_phrases: vec!["voice chat".to_string(), "voice".to_string()],
@@ -159,5 +249,50 @@ impl DetectedText {
                 y: self.bounding_box.mid_y(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default_has_multilingual_phrases() {
+        let config = Config::default();
+        assert!(config.reconnect_button_phrases.contains(&"Reconnect".to_string()));
+        assert!(config.reconnect_button_phrases.contains(&"Połącz ponownie".to_string()));
+        assert!(config.reconnect_button_phrases.contains(&"Reconectar".to_string()));
+        assert!(config.reconnect_button_phrases.contains(&"Erneut verbinden".to_string()));
+    }
+
+    #[test]
+    fn test_config_deserialize_from_legacy_single_string() {
+        let json = r#"{"reconnectButtonText": "Custom Reconnect"}"#;
+        let config: Config = serde_json::from_str(json).expect("deserialization failed");
+        assert_eq!(config.reconnect_button_phrases, vec!["Custom Reconnect".to_string()]);
+    }
+
+    #[test]
+    fn test_config_deserialize_from_comma_separated_string() {
+        let json = r#"{"reconnectButtonPhrases": "Reconnect, Połącz ponownie, Reconectar"}"#;
+        let config: Config = serde_json::from_str(json).expect("deserialization failed");
+        assert_eq!(
+            config.reconnect_button_phrases,
+            vec![
+                "Reconnect".to_string(),
+                "Połącz ponownie".to_string(),
+                "Reconectar".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_config_deserialize_from_json_array() {
+        let json = r#"{"reconnectButtonPhrases": ["Reconnect", "Wiederverbinden"]}"#;
+        let config: Config = serde_json::from_str(json).expect("deserialization failed");
+        assert_eq!(
+            config.reconnect_button_phrases,
+            vec!["Reconnect".to_string(), "Wiederverbinden".to_string()]
+        );
     }
 }

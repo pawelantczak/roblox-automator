@@ -10,10 +10,12 @@ pub struct OcrService;
 impl OcrService {
     /// Runs Windows Media OCR on a captured window frame
     pub fn scan_frame(frame: &CapturedFrame) -> Vec<DetectedText> {
-        if let Ok(results) = Self::scan_internal(frame) {
-            results
-        } else {
-            Vec::new()
+        match Self::scan_internal(frame) {
+            Ok(results) => results,
+            Err(e) => {
+                eprintln!("[OCR Error] scan_internal failed: {:?}", e);
+                Vec::new()
+            }
         }
     }
 
@@ -116,5 +118,63 @@ impl OcrService {
         }
 
         items
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::classifier::Classifier;
+    use crate::models::Config;
+    use std::path::Path;
+
+    #[test]
+    fn test_ocr_on_user_uploaded_images() {
+        let paths = [
+            (
+                r"C:\Users\pawel\.gemini\antigravity\brain\f6e91f92-803e-4bb8-88a4-600c11ea779b\.user_uploaded\media_1795543667572_d18f21dd.jpg",
+                "Retry",
+            ),
+            (
+                r"C:\Users\pawel\.gemini\antigravity\brain\f6e91f92-803e-4bb8-88a4-600c11ea779b\.user_uploaded\media_1795543699605_91b87493.jpg",
+                "Połącz ponownie",
+            ),
+        ];
+
+        let config = Config::default();
+
+        for (idx, (p, expected_button)) in paths.iter().enumerate() {
+            if !Path::new(p).exists() {
+                println!("Image {} does not exist at {}", idx + 1, p);
+                continue;
+            }
+            let img = image::open(p).expect("failed to open image").to_rgba8();
+            let width = img.width() as i32;
+            let height = img.height() as i32;
+            let frame = CapturedFrame {
+                width,
+                height,
+                rgba_data: img.into_raw(),
+            };
+
+            let detected = OcrService::scan_frame(&frame);
+            assert!(!detected.is_empty(), "Image {} should detect text items", idx + 1);
+
+            let has_disconnect = detected.iter().any(|item| {
+                Classifier::is_fatal_disconnect(&item.text, &config.disconnect_keywords, &config.ignore_phrases)
+            });
+            assert!(has_disconnect, "Image {} should trigger fatal disconnect", idx + 1);
+
+            let btn = Classifier::find_reconnect_button(
+                &detected,
+                &config.reconnect_button_phrases,
+                &config.ignore_phrases,
+            );
+            assert!(btn.is_some(), "Image {} should find reconnect button '{}'", idx + 1, expected_button);
+            assert!(
+                btn.unwrap().text.to_lowercase().contains(&expected_button.to_lowercase()),
+                "Found button should contain expected phrase"
+            );
+        }
     }
 }

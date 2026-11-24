@@ -182,6 +182,12 @@
         </div>
 
         <div>
+          <label class="block text-slate-400 text-[11px] mb-1">Disconnect / Reconnect Button Phrases (comma-separated)</label>
+          <input type="text" id="cfgReconnectButtonPhrases" placeholder="Reconnect, Reconectar, Połącz ponownie, Erneut verbinden" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+          <span class="text-[10px] text-slate-500">Supports accounts with different client languages (e.g. English, Polish, Spanish, German, etc.)</span>
+        </div>
+
+        <div>
           <label class="block text-slate-400 text-[11px] mb-1">Target Event Keywords (e.g. turkey hunt, pumpkin tycoon)</label>
           <input type="text" id="cfgEventKeywords" placeholder="turkey hunt" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
         </div>
@@ -245,6 +251,7 @@
     });
 
     // Settings Modal
+    let currentConfig = {};
     const settingsModal = document.getElementById('settingsModal');
     document.getElementById('openSettingsBtn').addEventListener('click', () => {
       sendNative({ action: 'getConfig' });
@@ -255,10 +262,15 @@
 
     document.getElementById('settingsForm').addEventListener('submit', (e) => {
       e.preventDefault();
+      const rawPhrases = document.getElementById('cfgReconnectButtonPhrases').value;
+      const buttonPhrases = rawPhrases.split(',').map(s => s.trim()).filter(Boolean);
+
       const updated = {
+        ...currentConfig,
         checkIntervalSeconds: parseFloat(document.getElementById('cfgInterval').value) || 5.0,
         reconnectCooldownSeconds: parseFloat(document.getElementById('cfgCooldown').value) || 30.0,
         placeId: document.getElementById('cfgPlaceId').value.trim() || null,
+        reconnectButtonPhrases: buttonPhrases.length > 0 ? buttonPhrases : ['Reconnect'],
         eventTargetKeywords: document.getElementById('cfgEventKeywords').value.split(',').map(s => s.trim()).filter(Boolean),
         antiAfkEnabled: document.getElementById('cfgAntiAfkEnabled').checked,
         antiAfkIntervalSeconds: (parseInt(document.getElementById('cfgAntiAfkMinutes').value) || 10) * 60.0
@@ -269,9 +281,12 @@
 
     // Rust Callback: Populate Settings
     window.populateConfig = function(cfg) {
+      currentConfig = cfg;
       document.getElementById('cfgInterval').value = cfg.checkIntervalSeconds ?? 5.0;
       document.getElementById('cfgCooldown').value = cfg.reconnectCooldownSeconds ?? 30.0;
       document.getElementById('cfgPlaceId').value = cfg.placeId ?? '';
+      const buttonPhrases = cfg.reconnectButtonPhrases || (cfg.reconnectButtonText ? [cfg.reconnectButtonText] : ['Reconnect']);
+      document.getElementById('cfgReconnectButtonPhrases').value = Array.isArray(buttonPhrases) ? buttonPhrases.join(', ') : buttonPhrases;
       document.getElementById('cfgEventKeywords').value = (cfg.eventTargetKeywords ?? ['turkey hunt']).join(', ');
       document.getElementById('cfgAntiAfkEnabled').checked = cfg.antiAfkEnabled ?? true;
       document.getElementById('cfgAntiAfkMinutes').value = Math.round((cfg.antiAfkIntervalSeconds ?? 600) / 60);

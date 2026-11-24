@@ -10,11 +10,11 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
   - `VERSION`: Root plain-text file holding the semver string (e.g. `0.1.0`).
   - Synchronized into `Cargo.toml` (`version = "..."`), binary metadata, and release archives.
 - **Components**:
-  - `src/models.rs`: `Config`, `InstanceCard`, `UIStateBroadcast`, `IPCAction`, and `DetectedText` entities.
+  - `src/models.rs`: `Config` (with multi-language `reconnect_button_phrases`), `InstanceCard`, `UIStateBroadcast`, `IPCAction`, and `DetectedText` entities.
   - `src/window.rs`: Win32 process discovery (`RobloxPlayerBeta.exe`), window handle (`HWND`) enumeration, and unminimize/activation helpers.
   - `src/capture.rs`: Silent background window capture via Win32 GDI `PrintWindow` (`PW_RENDERFULLCONTENT`) and downscaled JPEG base64 thumbnail encoding.
   - `src/ocr.rs`: On-device Windows Media OCR (`windows::Media::Ocr::OcrEngine`) and super-sampled left sidebar recognition.
-  - `src/classifier.rs`: Disconnect keyword filtering, non-fatal toast exclusion, and Levenshtein fuzzy word matching.
+  - `src/classifier.rs`: Disconnect keyword filtering, multi-language button phrase matching, non-fatal toast exclusion, and Levenshtein fuzzy word matching.
   - `src/tracer.rs`: Computer vision cartoon border (`UIStroke`) contour tracing and geometric centroid calculation.
   - `src/input.rs`: Atomic serialized input queue (`INPUT_LOCK`), hardware scancode spacebar jump (`0x0039`), and stealth Anti-AFK engine.
   - `src/engine.rs`: Multi-instance background monitoring loop and state coordinator.
@@ -37,7 +37,7 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
    - Captures each window's graphics backbuffer using GDI `PrintWindow` with `PW_RENDERFULLCONTENT` without bringing windows to the front, interrupting desktop work, or capturing user desktop screens.
 3. **On-Device Windows Media OCR**:
    - Uses Windows 10/11 native `windows::Media::Ocr::OcrEngine` for ultra-fast, local, hardware-accelerated text recognition without external models or dependencies.
-   - Detects disconnect dialogs, error codes (`277`, `279`, `267`, `271`, `268`, `273`), and server shutdown notices.
+   - Detects disconnect dialogs, error codes (`277`, `279`, `267`, `271`, `268`, `273`), server shutdown notices, and localized disconnect/reconnect button phrases across multi-language client accounts (e.g. English, Polish, Spanish, German, etc.).
 4. **Universal Event Navigation & Border Tracing**:
    - Analyzes stylized in-game typography using phonetic normalization and Levenshtein edit distance (e.g. matching "Turkcy" or "Hung" to "Turkey Hunt").
    - Dynamically traces dark cartoon outlines (`UIStroke`, luminance $< 48$) and uses column-gap isolation to target the exact geometric centroid of event icons.

@@ -10,9 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-Language Disconnect & Reconnect Button Support**: Added a configurable setting allowing users to specify multiple button phrases (such as *Reconnect*, *Reconectar*, *Połącz ponownie*, *Erneut verbinden*, etc.) separated by commas in the Settings dialog. This enables the automator to accurately identify and click the reconnect button on accounts running in different languages.
+- **Visual Button Disconnect Detection**: Automatically recognizes disconnect dialogs across non-English accounts whenever a recognized reconnect button phrase is visible on-screen, ensuring seamless recovery even when localized game client disconnect messages vary.
 - **Hardware Scancode Spacebar Jump**: Anti-AFK character jumps now supply physical OEM keyboard scan codes (`0x0039`) alongside virtual keys and Win32 `PostMessage` dual-dispatch, ensuring character jumps register in Roblox's DirectInput and Raw Input engine.
 - **Extended Jump Dwell Duration**: Key hold duration extended to 140ms with a 150ms post-jump buffer to guarantee Roblox physics step frames process character jumps before restoring desktop focus.
 - **Active Focus Lock Verification**: Verifies active window foreground state before dispatching keystrokes, eliminating dropped inputs during rapid application switching.
+
+### Fixed
+- **Screen Text Recognition Engine**: Resolved an issue where background text detection failed silently on captured game frames, preventing the automator from identifying disconnect dialogs and in-game buttons.
+- **Join Error & HTTP Error Detection**: Added automatic detection for join failures and HTTP connection errors (such as Error Code 529), including support for "Retry" buttons to immediately re-attempt server connection.
+- **Multilingual Disconnect Detection**: Expanded built-in disconnect keywords and button phrases to natively support non-English Roblox clients (such as Polish "Rozłączono" and "Kod błędu: 277") without requiring manual keyword configuration.
 
 ---
 

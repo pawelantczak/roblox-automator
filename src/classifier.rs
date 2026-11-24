@@ -30,24 +30,55 @@ impl Classifier {
         })
     }
 
-    /// Finds the reconnect button in detected text elements
+    /// Finds the reconnect button in detected text elements matching any configured phrase
     pub fn find_reconnect_button(
         items: &[DetectedText],
-        button_text: &str,
+        button_phrases: &[String],
         ignore_phrases: &[String],
     ) -> Option<DetectedText> {
-        let target = button_text.trim().to_lowercase();
-        if target.is_empty() {
+        if button_phrases.is_empty() {
             return None;
         }
 
-        for item in items {
-            if Self::is_ignored(&item.text, ignore_phrases) {
+        for phrase in button_phrases {
+            let target = phrase.trim().to_lowercase();
+            if target.is_empty() {
                 continue;
             }
-            let trimmed = item.text.trim().to_lowercase();
-            if trimmed == target || trimmed.contains(&target) {
-                return Some(item.clone());
+
+            for item in items {
+                if Self::is_ignored(&item.text, ignore_phrases) {
+                    continue;
+                }
+                let trimmed = item.text.trim().to_lowercase();
+                if trimmed == target || trimmed.contains(&target) {
+                    return Some(item.clone());
+                }
+
+                // Check individual words or tokens if target matches with fuzzy tolerance
+                let target_tokens: Vec<&str> = target.split_whitespace().collect();
+                if target_tokens.len() == 1 {
+                    let tok = target_tokens[0];
+                    if item.word_boxes.iter().any(|wb| {
+                        let w = wb.word.trim().to_lowercase();
+                        w == tok || Self::word_matches(&w, tok)
+                    }) {
+                        return Some(item.clone());
+                    }
+                } else if !target_tokens.is_empty() {
+                    let item_words: Vec<String> = if !item.word_boxes.is_empty() {
+                        item.word_boxes.iter().map(|w| w.word.to_lowercase()).collect()
+                    } else {
+                        item.text.split_whitespace().map(|w| w.to_lowercase()).collect()
+                    };
+                    let matched_count = target_tokens
+                        .iter()
+                        .filter(|tok| item_words.iter().any(|w| w == *tok || Self::word_matches(w, tok)))
+                        .count();
+                    if matched_count == target_tokens.len() {
+                        return Some(item.clone());
+                    }
+                }
             }
         }
         None
@@ -221,5 +252,86 @@ impl Classifier {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{DetectedWord, NormalizedPoint, NormalizedRect};
+
+    fn make_item(text: &str) -> DetectedText {
+        let words = text
+            .split_whitespace()
+            .map(|w| DetectedWord {
+                word: w.to_string(),
+                bounding_box: NormalizedRect::new(0.0, 0.0, 0.1, 0.1),
+            })
+            .collect();
+
+        DetectedText {
+            text: text.to_string(),
+            bounding_box: NormalizedRect::new(0.0, 0.0, 0.2, 0.1),
+            target_point: Some(NormalizedPoint { x: 0.1, y: 0.05 }),
+            whole_icon_box: None,
+            word_boxes: words,
+        }
+    }
+
+    #[test]
+    fn test_find_reconnect_button_english() {
+        let items = vec![make_item("Error Code: 277"), make_item("Reconnect")];
+        let phrases = vec!["Reconnect".to_string(), "Połącz ponownie".to_string()];
+        let ignores = vec![];
+
+        let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().text, "Reconnect");
+    }
+
+    #[test]
+    fn test_find_reconnect_button_polish() {
+        let items = vec![
+            make_item("Utracono połączenie"),
+            make_item("Połącz ponownie"),
+        ];
+        let phrases = vec!["Reconnect".to_string(), "Połącz ponownie".to_string()];
+        let ignores = vec![];
+
+        let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().text, "Połącz ponownie");
+    }
+
+    #[test]
+    fn test_find_reconnect_button_spanish() {
+        let items = vec![make_item("Desconectado"), make_item("Reconectar")];
+        let phrases = vec!["Reconnect".to_string(), "Reconectar".to_string()];
+        let ignores = vec![];
+
+        let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().text, "Reconectar");
+    }
+
+    #[test]
+    fn test_find_reconnect_button_german() {
+        let items = vec![make_item("Verbindung getrennt"), make_item("Erneut verbinden")];
+        let phrases = vec!["Reconnect".to_string(), "Erneut verbinden".to_string()];
+        let ignores = vec![];
+
+        let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().text, "Erneut verbinden");
+    }
+
+    #[test]
+    fn test_find_reconnect_button_ignores_ignored() {
+        let items = vec![make_item("Voice Chat Reconnect")];
+        let phrases = vec!["Reconnect".to_string()];
+        let ignores = vec!["voice chat".to_string()];
+
+        let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
+        assert!(found.is_none());
     }
 }

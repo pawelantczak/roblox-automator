@@ -119,14 +119,22 @@ impl WatcherEngine {
                         }
                     }
 
+                    let reconnect_btn = Classifier::find_reconnect_button(&detected_items, &config.reconnect_button_phrases, &config.ignore_phrases);
+
+                    // If fatal keywords didn't match (e.g. non-English client language), matching the button confirms disconnect
+                    if !is_disconnected && reconnect_btn.is_some() {
+                        is_disconnected = true;
+                        disconnect_match = format!("Button '{}'", reconnect_btn.as_ref().unwrap().text);
+                    }
+
                     if is_disconnected {
                         status = "DISCONNECTED".to_string();
                         self.append_log(format!("[ALERT] Disconnect detected on #{} ({})! Matched: {}", idx + 1, win.pid, disconnect_match));
 
-                        if let Some(reconnect_btn) = Classifier::find_reconnect_button(&detected_items, &config.reconnect_button_text, &config.ignore_phrases) {
+                        if let Some(btn) = reconnect_btn {
                             if config.auto_click_reconnect {
                                 status = "RECONNECTING".to_string();
-                                let click_pt = reconnect_btn.click_point();
+                                let click_pt = btn.click_point();
                                 let screen_x = win.bounds.left + (click_pt.x * (win.client_width as f32)) as i32;
                                 let screen_y = win.bounds.top + (click_pt.y * (win.client_height as f32)) as i32;
 
