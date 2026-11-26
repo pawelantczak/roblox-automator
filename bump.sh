@@ -55,16 +55,18 @@ with open('Cargo.toml', 'w') as f:
     echo "==> Updated Cargo.toml to version $NEW_VERSION"
 fi
 
-# Synchronize CHANGELOG.md
+# Synchronize CHANGELOG.md and RELEASE_NOTES.md
 TODAY=$(date +"%Y-%m-%d")
-if [ -f "$DIR/CHANGELOG.md" ]; then
-    python3 -c "
-import sys, re
-changelog_path = '$DIR/CHANGELOG.md'
+for DOC_NAME in CHANGELOG.md RELEASE_NOTES.md; do
+    if [ -f "$DIR/$DOC_NAME" ]; then
+        python3 -c "
+import re
+doc_path = '$DIR/$DOC_NAME'
+doc_name = '$DOC_NAME'
 new_ver = '$NEW_VERSION'
 today = '$TODAY'
 
-with open(changelog_path, 'r') as f:
+with open(doc_path, 'r') as f:
     content = f.read()
 
 if f'## [{new_ver}]' not in content:
@@ -74,11 +76,12 @@ if f'## [{new_ver}]' not in content:
         body = m.group(1).strip()
         replacement = f'## [Unreleased]\n\n---\n\n## [{new_ver}] - {today}\n\n{body}\n'
         content = content[:m.start()] + replacement + content[m.end():]
-        with open(changelog_path, 'w') as f:
+        with open(doc_path, 'w') as f:
             f.write(content)
-        print(f'==> Updated CHANGELOG.md with release header for v{new_ver}')
+        print(f'==> Updated {doc_name} with release header for v{new_ver}')
 "
-fi
+    fi
+done
 
 # Verify build
 cargo build --release

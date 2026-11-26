@@ -1,72 +1,46 @@
 # Changelog
 
-All notable changes to **Roblox Watcher** will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Technical changelog for **Roblox Watcher** maintainers and contributors.  
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).  
+End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ---
 
 ## [Unreleased]
 
-### Fixed
-- **Fixed Preview Card Height**: Moved the failure/reconnect cooldown status bar inside the bottom of the preview image as an overlay so preview cards keep a constant height regardless of window state.
-- **Reconnect Button Positioning**: Improved reconnect button detection to pinpoint the exact matched button text rather than whole merged button rows or error description text, and added an upscaled center-region scan fallback when disconnect text is seen across modals of varying heights.
+### Added
+- `InstanceCard.reconnect_crop_base64` (`src/models/state.rs`) and `InstanceTracker.reconnect_crop_base64` (`src/engine/scheduler.rs`): captures `40px` radius JPEG crops via `encode_point_crop_base64` around `btn.click_point()`, logs via `BoundedLogQueue::push_with_icon`, and renders `.card-thumb .reconnect-crop-overlay` (`44×44`, `--rose-500` border) in `resources/app.js` / `resources/styles.css`.
+- `BoundedLogQueue::new_with_file` & `export_jsonl` (`src/models/state.rs`), `UiCommand::ExportLogsJsonl` / `UiEvent::LogsJsonlExported` (`src/models/ipc.rs`): persists structured JSONL logs (`timestamp`, `level`, `instanceId`, `message`, `iconBase64`) to `roblox-watcher.jsonl` and streams export to `#downloadLogsBtn` in `resources/app.js`.
+- `InstanceCard.event_crop_base64` (`src/models/state.rs`) and `.card-thumb .event-crop-overlay` (`resources/styles.css`, `resources/app.js`): overlays a `44×44` crop centered on the traced event target point.
+- Console scroll-lock in `resources/app.js` (`logsPaused`, `#resumeLogsBtn` `.btn-resume`) to pause DOM updates when scrolled away from bottom.
+- Single-row 5-box `.stats-ribbon` (`resources/index.html`, `resources/styles.css`, `resources/app.js`) combining `Session` (`#sessionUptime`, `#activeWinsCount`, `#activeWinsUnit`), `Next Scan` inline stepper (`#scanUpBtn`/`#scanDownBtn`), `Anti-AFK Keep-Alive` inline stepper (`#afkUpBtn`/`#afkDownBtn`), and `Event Icon Text` toggle/input (`#ribbonEventEnabled`, `#ribbonEventKeywords`).
+- Externalized `Config` schema v2 (`src/models/config.rs`) with `target_process_names`, `fallback_window_title`, `ui_strings`, `disconnect_keywords`, `reconnect_button_phrases`, `ignore_phrases`, `event_target_keywords`, validation, and `schema_version` migration in `src/storage.rs`.
+- WebView2 runtime check (`src/ui/webview.rs`), offline bundled assets (`resources/index.html`, `resources/styles.css`, `resources/app.js`) with strict CSP, and `OcrProvider` multi-language reconnect phrase matching (`src/engine/classifier.rs`, `src/models/config.rs`).
+- `Win32InputService` (`src/input/mod.rs`) hardware scancode `0x0039` spacebar dispatch with `PostMessage` dual-dispatch, 140ms hold / 150ms post-jump dwell, and foreground verification.
 
 ### Changed
-- **Balanced Preview Grid & Fixed Window Width**: Updated the preview grid to fit 1–4 windows in a single row, switch to 3×2 equal rows for 6 windows (and 3×3 for 9), scale cards fluidly, lock the application window width to `1040px` while keeping height resizable, and always show the full preview section without scrolling even as new windows appear at runtime.
-- **Initial & Idle Preview Refresh**: Captured initial window preview thumbnails immediately on startup and refreshed them periodically (every 10s when frames change) while idle, updated default scan interval to 15s and UI refresh interval to 2s (configured in seconds), renamed the event ribbon label to *Event Icon Text*, shortened the log download button label to *Download*, and removed process/instance IDs from preview cards and console log lines.
-- **UI Streamlining & Scrollbar Polish**: Removed the *Scan* and *Diagnostics* buttons, removed *Target Place ID* from the dashboard and settings, and styled the settings dialog scrollbar to match the dark theme.
-- **Rebranded to Roblox Watcher**: Renamed the application to *Roblox Watcher*, added the custom bundled app icon to both the window titlebar/taskbar and dashboard header, and removed the "Windows Multi-Instance CCTV" header subtitle.
-
-### Added
-- **Reconnect Button Crop Overlay**: When a disconnect/reconnect button is recognized, a small `44×44` zoomed crop centered on its click target (with a rose border) is overlaid in the bottom-right corner of the window preview card and logged to JSONL.
-- **Single-Row 5-Box Status Ribbon**: Merged *Session Uptime* and *Active Windows* into a single *Session* card (showing full `window`/`windows` text) and locked the top ribbon to a single horizontal row (`Watcher Status`, `Session`, `Next Scan`, `Anti-AFK Keep-Alive`, `Event Icon Text`).
-- **JSONL Log Persistence & Download**: All console log messages—including base64-encoded crops of detected event icons—are now recorded in JSONL format and can be downloaded via the new **Download** button in the Activity Telemetry header.
-- **Console Scroll Pause & Resume Button**: Scrolling up in the Activity Telemetry console automatically pauses live log updates to preserve your scroll position, and a **Resume Logs** button next to *Clear Console* resumes live updates and catches up.
-- **Event Target Crop Overlay**: When an event icon is recognized, a small `44×44` zoomed crop centered on the traced target point (with a cyan crosshair) is overlaid in the bottom-right corner of the window preview card.
-- **Detailed Engine Activity Logs**: Added real-time console log entries for window discovery, OCR scans, disconnect/cooldown status, reconnect button clicks, event text searches/matches per window (`#1`, `#2`, etc.), and Anti-AFK jumps.
-- **Target Event Ribbon Box & Ticker**: Moved *Target Event Keywords* out of the Settings dialog into a dedicated top ribbon card with an inline enable/disable toggle and instant keyword updates.
-- **Summary Stat Ribbon & Global Anti-AFK Timer**: Added a top status ribbon combining watcher status and queue state, displaying active window count, target Place ID, and a global Anti-AFK live countdown with inline up/down interval controls that apply immediately while keeping restart counts per window.
-- **Fully Externalized Settings & Strings**: All target process names, disconnect dialog keywords, ignore phrases, reconnect button phrases, event keywords, status labels, tray menu labels, and application title are now configurable via the Settings dialog and `config.json`.
-- **Offline Bundled Dashboard & Diagnostics View**: All dashboard styles and scripts are now bundled directly inside the application with zero external network dependencies, alongside a new *Diagnostics* modal displaying runtime version details, capture/OCR counters, and recovery metrics.
-- **Configurable UI Refresh & Validation**: Added a configurable dashboard refresh interval (250–5000 ms), automatic settings validation with clear error feedback, and seamless migration for older configuration files.
-- **Per-Window State & Cooldown Tracking**: Each monitored window now displays deterministic state badges (*Idle*, *Healthy*, *Disconnected*, *Reconnecting*, *Navigating*, *Error*) and active reconnect cooldown countdowns.
-- **Startup Runtime Verification**: Added a startup check that detects missing WebView2 runtimes and displays a clear installation prompt.
-- **Multi-Language Disconnect & Reconnect Button Support**: Added a configurable setting allowing users to specify multiple button phrases (such as *Reconnect*, *Reconectar*, *Połącz ponownie*, *Erneut verbinden*, etc.) separated by commas in the Settings dialog. This enables the watcher to accurately identify and click the reconnect button on accounts running in different languages.
-- **Visual Button Disconnect Detection**: Automatically recognizes disconnect dialogs across non-English accounts whenever a recognized reconnect button phrase is visible on-screen, ensuring seamless recovery even when localized game client disconnect messages vary.
-- **Hardware Scancode Spacebar Jump**: Anti-AFK character jumps now supply physical OEM keyboard scan codes (`0x0039`) alongside virtual keys and Win32 `PostMessage` dual-dispatch, ensuring character jumps register in Roblox's DirectInput and Raw Input engine.
-- **Extended Jump Dwell Duration**: Key hold duration extended to 140ms with a 150ms post-jump buffer to guarantee Roblox physics step frames process character jumps before restoring desktop focus.
-- **Active Focus Lock Verification**: Verifies active window foreground state before dispatching keystrokes, eliminating dropped inputs during rapid application switching.
-
-### Removed
-- **System Tray Integration**: Removed the Windows system tray icon, tray menu, and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
+- `EngineWorker::capture_idle_thumbnails` (`src/engine/mod.rs`): captures initial thumbnails on startup (`force_refresh = false`) and refreshes changed frames every `10s` while idle (`force_refresh = true`, skipping unchanged `frame_hash`).
+- Balanced preview grid & fixed window geometry (`resources/app.js`, `resources/styles.css`, `src/ui/mod.rs`):
+  - Dynamic `--grid-cols` (`1–4` → `N`, `5–6` or `9` → `3`, `7–8`/`10+` → `4`) and `data-rows` with row-aware `.card-thumb` `max-height` (`165px` / `120px` / `105px`).
+  - Removed `.grid-scroll` `max-height` / `overflow-y: auto` so the preview grid stays visible at all times while `.logs-panel` (`min-height: 110px`) scrolls internally.
+  - Locked `WindowBuilder` width to `1040.0` (`min_inner_size` `1040×520`, `max_inner_size` `1040×4096`).
+- Config defaults (`src/models/config.rs`): `check_interval_seconds` = `15.0`, `ui_refresh_interval_ms` = `2000` (exposed in seconds in UI), removed PID/instanceId labels from preview cards and console output.
+- Rebranded UI/assets (`Cargo.toml`, `resources/index.html`, `resources/app_icon.png`, `src/ui/mod.rs`) to `Roblox Watcher`, removed `Scan`, `Diagnostics`, `Target Place ID`, and `tray-icon` integration.
 
 ### Fixed
-- **Accurate Event Icon Centering**: Isolated matched keyword word boxes (excluding trailing counters/adjacent columns) and added bottom-up row-gap isolation in the border tracer so icons above the target (such as "Ready!" banners) are never included in the traced center.
-- **Sidebar OCR Dimension Cap & Fuzzy Merged Matching**: Capped upscaled sidebar dimensions within Windows OCR limits (`<= 2200px`), switched high-contrast text isolation to luminance thresholding, and added punctuation splitting plus fuzzy sliding-window matching for merged event labels (e.g. `Turkey'Hunt`, `TurkoyHunt`).
-- **First-Cycle High-Contrast Event OCR**: Added a 3x upscaled black-on-white high-contrast sidebar OCR fallback pass so stylized white event labels are recognized on the first scan cycle without being obscured by colorful game backgrounds.
-- **Locked Window Preview Grid Height**: Prevented the Activity Telemetry console from shrinking the window preview section when log lines accumulate, keeping preview cards at full height without unwanted scrollbars.
-- **Event Icon Click Execution**: Dispatched mouse clicks to the traced event icon center whenever event text is matched, guarded by a per-window cooldown to prevent repeated clicks.
-- **Event Icon Sidebar Detection**: Expanded the left-sidebar scan region to cover multi-column event buttons, added full-frame fallback matching, and handled merged OCR words (e.g. "TurkeyHunt") for reliable event icon recognition.
-- **Aspect-Ratio Preserved Previews & Adaptive Grid**: Window preview thumbnails now preserve their exact original aspect ratio without stretching or scaling when resizing the dashboard, the window grid adapts columns cleanly, and the Activity Telemetry panel sticks directly below the windows grid.
-- **Reliable Reconnect Button Clicking**: Fixed an issue where reconnect clicks were offset by the window title bar and borders, and updated mouse click timing so the game client reliably registers button hover and press events.
-- **Screen Text Recognition Engine**: Resolved an issue where background text detection failed silently on captured game frames, preventing the watcher from identifying disconnect dialogs and in-game buttons.
-- **Join Error & HTTP Error Detection**: Added automatic detection for join failures and HTTP connection errors (such as Error Code 529), including support for "Retry" buttons to immediately re-attempt server connection.
-- **Multilingual Disconnect Detection**: Expanded built-in disconnect keywords and button phrases to natively support non-English Roblox clients (such as Polish "Rozłączono" and "Kod błędu: 277") without requiring manual keyword configuration.
+- `.card-error-line` overlay (`resources/app.js`, `resources/styles.css`): moved inside `.card-thumb` (`position: absolute; bottom: 0`) with `.card-thumb.has-error` shifting bottom overlays up to `24px`, keeping `.card` height invariant across states.
+- `Classifier::find_reconnect_button` (`src/engine/classifier.rs`) & `OcrProvider::scan_region_upscaled` (`src/ocr/mod.rs`, `src/engine/mod.rs`):
+  - Scores exact button-label matches and shorter lines above longer error body sentences, narrows `bounding_box` and `target_point` to the matched contiguous `word_boxes` span (preventing midpoint clicks on merged `"Cancel Retry"` / `"Opuść Połącz ponownie"` lines).
+  - Runs a `1.5x–2.5x` `CatmullRom` upscaled OCR pass on `NormalizedRect(0.15, 0.15, 0.85, 0.90)` when `disconnect_match.is_some()` and 1x `scan_frame` misses the button.
+- `Classifier::find_event_target` & `IconTracer` (`src/engine/classifier.rs`, `src/engine/tracer.rs`, `src/ocr/mod.rs`):
+  - Isolated matched keyword `word_boxes`, added bottom-up row-gap isolation in `IconTracer`, capped sidebar upscale at `2200px`, added luminance thresholding (`lum >= 180`) in `scan_left_sidebar_high_contrast`, and added fuzzy sliding-window matching (`edit_distance <= 2`).
+- Coordinate mapping in `src/engine/mod.rs` and `Win32CaptureService` (`src/capture/mod.rs`) for window-relative click dispatch and aspect-ratio preserved thumbnails.
 
 ---
 
 ## [0.1.0] - 2026-11-23
 
 ### Added
-- **Multi-Instance CCTV Monitoring Grid**: Visual dashboard displaying live thumbnail previews of all running Roblox windows simultaneously on Windows, showing individual process IDs, game health badges, and Anti-AFK countdowns.
-- **Unified Master Actions**: One-click controls (*Start All*, *Stop All*, *Test Jump*, *Rescan*) that coordinate automation and settings uniformly across all active accounts.
-- **Silent Background Screen Capture**: Captures game frames silently in the background without bringing windows to the front, interrupting desktop work, or capturing personal desktop content.
-- **On-Device Windows Media OCR**: Fast local text recognition using built-in Windows 10/11 OCR to detect disconnect banners and error codes (`277`, `279`, `267`, etc.) in milliseconds without external tools or cloud APIs.
-- **Dynamic Cartoon Border (`UIStroke`) Tracing**: Computer vision border tracer that isolates the dark cartoon stroke of in-game event icons to calculate and click the exact visual center across any display scale.
-- **Fuzzy In-Game Typography Matching**: Phonetic normalization and Levenshtein edit distance algorithms that reliably match stylized game fonts (e.g. "Turkey Hunt") even on low-resolution or blurred windows.
-- **Stealth Anti-AFK Keep-Alive**: Prevents 20-minute idle kicks using an atomic Focus-Click-Space-Restore sequence with random spatial jitter ($\pm 6\text{px}$) and instant restoration of previous application focus and hardware cursor location.
-- **Native Windows System Tray Integration**: Minimizes cleanly to the Windows notification tray on window close, featuring a dynamic Cyan/Gray status indicator icon and right-click context menu.
-- **Single-Instance Enforcement**: Protects against duplicate processes via Windows Named Mutex (`Global\RobloxWatcher_Mutex`), activating the existing dashboard if reopened.
-- **Display Sleep & Screen Lock Prevention**: Engages Windows system power execution state flags (`ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED`) to prevent screen savers, monitor sleep, or auto-lock while monitoring is active.
+- Core modular architecture: `src/window/` (`Win32WindowService`), `src/capture/` (`Win32CaptureService` via `PrintWindow` `PW_RENDERFULLCONTENT`), `src/ocr/` (`WindowsMediaOcrService`), `src/input/` (`Win32InputService` with `INPUT_LOCK` and `ForegroundAndCursorGuard`), `src/engine/` (`EngineController`, `EngineWorker`, `InstanceTracker`, `Classifier`, `IconTracer`), `src/power.rs` (`SetThreadExecutionState`), `src/storage.rs`, and `src/ui/` (`tao` + `wry` WebView2).
+- Single-instance Windows Named Mutex (`Global\RobloxWatcher_Mutex`) in `src/main.rs`.
+- GitHub Actions CI/CD workflow (`.github/workflows/build.yml`) and version bump scripts (`bump.ps1`, `bump.sh`).

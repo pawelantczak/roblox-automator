@@ -21,8 +21,8 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
   - `src/storage.rs`: Atomic JSON configuration (`config.json`) writes and versioned schema migration.
   - `src/main.rs`: Pure startup and composition root (WebView2 runtime check, RAII Win32 Named Mutex guard, config loading, and UI launch).
   - `resources/`: Locally bundled `index.html`, `styles.css`, and `app.js` with strict Content Security Policy and typed IPC bridging (zero CDN dependencies).
-  - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` headers.
-  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-watcher.exe` alongside native ZIP archives, extracting release notes, and publishing GitHub Releases.
+  - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` and `RELEASE_NOTES.md` headers.
+  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-watcher.exe` alongside native ZIP archives, extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
 
 ---
 
@@ -57,18 +57,22 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
 1. **NEVER TAG CODE**:
    - Do **NOT** create, move, delete, or push Git tags (never run `git tag`, `git tag -f`, `git push origin <tag>`, or `git push --tags`).
    - Tagging is strictly reserved for the human user.
-2. **ALWAYS UPDATE CHANGELOG.md**:
-   - Every feature, fix, or breaking change must be documented in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
-   - **End-User Friendly Only**: Write changelog entries strictly from the end-user's perspective focusing on functional aspects, observable behavior, and user benefits. Never include low-level technical jargon, internal code identifiers, framework names, internal file names, or implementation details.
+2. **ALWAYS UPDATE CHANGELOG.md (TECHNICAL)**:
+   - Every feature, fix, or breaking change must be documented under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+   - **Fully Technical**: Write `CHANGELOG.md` entries for engineers and maintainers — include affected modules, symbols, traits, IPC/config fields, CSS/DOM details, and implementation specifics.
 3. **ALWAYS UPDATE GEMINI.md**:
    - Any architectural change, new script, configuration field, or rule modification must be recorded in this file ([GEMINI.md](file:///C:/Users/pawel/Sources/roblox-watcher/GEMINI.md)).
-4. **NO AUTOMATIC VERSION BUMPING**:
+4. **NO AUTOMATIC VERSION BUMPING & RELEASE_NOTES.md**:
    - **NEVER** bump the version automatically.
-   - Always keep new additions and fixes under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) and wait for explicit instruction from the user before bumping `VERSION` or running `./bump.ps1` / `./bump.sh`.
-   - When the user explicitly requests a version bump, determine the semver increment strictly from the release entries in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md):
-     - If there are **only fixes** (`### Fixed`), bump **patch** (`x.y.Z`).
-     - If there are any **new features or capabilities** (`### Added`), bump **minor** (`x.Y.0`).
-     - If there are **breaking architectural changes**, bump **major** (`X.0.0`).
+   - Always keep new technical additions and fixes under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) and wait for explicit instruction from the user before bumping `VERSION` or running `./bump.ps1` / `./bump.sh`.
+   - [RELEASE_NOTES.md](file:///C:/Users/pawel/Sources/roblox-watcher/RELEASE_NOTES.md) is **bound strictly to explicit "bump version" prompts** — do **NOT** edit `RELEASE_NOTES.md` during normal feature/fix tasks.
+   - **End-User Friendly Only (`RELEASE_NOTES.md`)**: Write `RELEASE_NOTES.md` strictly from the end-user's perspective focusing on functional behavior and user benefits (never include low-level technical jargon, internal code identifiers, framework names, or internal file names).
+   - When the user explicitly requests a version bump:
+     - Determine the semver increment strictly from the `[Unreleased]` entries in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md):
+       - Only fixes (`### Fixed`) → **patch** (`x.y.Z`).
+       - Any new features or capabilities (`### Added`) → **minor** (`x.Y.0`).
+       - Breaking architectural changes → **major** (`X.0.0`).
+     - Synthesize/update the end-user friendly entries under `## [Unreleased]` in [RELEASE_NOTES.md](file:///C:/Users/pawel/Sources/roblox-watcher/RELEASE_NOTES.md) from `CHANGELOG.md`, then run `./bump.ps1` (or `./bump.sh`) to stamp the new version across `VERSION`, `Cargo.toml`, `CHANGELOG.md`, and `RELEASE_NOTES.md`.
 5. **MODULAR ARCHITECTURE & FILE BUDGET**:
    - Keep individual Rust files clean and modular. Split files whenever responsibilities diverge.
    - All shared domain services, game automation, OCR, window finding, input simulation, and persistence must reside in dedicated modules (`src/`). Never bundle unrelated concerns into `src/main.rs`.

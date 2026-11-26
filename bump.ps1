@@ -54,20 +54,22 @@ if (Test-Path $CargoToml) {
     Write-Host "==> Updated Cargo.toml to version $NewVersion" -ForegroundColor Green
 }
 
-# 2. Synchronize CHANGELOG.md
-$ChangelogFile = Join-Path $ScriptDir "CHANGELOG.md"
+# 2. Synchronize CHANGELOG.md & RELEASE_NOTES.md
 $Today = (Get-Date).ToString("yyyy-MM-dd")
-if (Test-Path $ChangelogFile) {
-    $Changelog = Get-Content $ChangelogFile -Raw
-    if ($Changelog -notmatch "## \[$NewVersion\]") {
-        $Pattern = '(?s)## \[Unreleased\]\s*\n(.*?)(?=\n---\s*\n## \[|\n## \[|\Z)'
-        if ($Changelog -match $Pattern) {
-            $Body = $Matches[1].Trim()
-            if ($Body) {
-                $Replacement = "## [Unreleased]`n`n---`n`n## [$NewVersion] - $Today`n`n$Body`n"
-                $Changelog = $Changelog.Substring(0, $Matches.Index) + $Replacement + $Changelog.Substring($Matches.Index + $Matches.Length)
-                Set-Content -Path $ChangelogFile -Value $Changelog
-                Write-Host "==> Updated CHANGELOG.md with release header for v$NewVersion" -ForegroundColor Green
+foreach ($DocName in @("CHANGELOG.md", "RELEASE_NOTES.md")) {
+    $DocFile = Join-Path $ScriptDir $DocName
+    if (Test-Path $DocFile) {
+        $DocContent = Get-Content $DocFile -Raw
+        if ($DocContent -notmatch "## \[$NewVersion\]") {
+            $Pattern = '(?s)## \[Unreleased\]\s*\n(.*?)(?=\n---\s*\n## \[|\n## \[|\Z)'
+            if ($DocContent -match $Pattern) {
+                $Body = $Matches[1].Trim()
+                if ($Body) {
+                    $Replacement = "## [Unreleased]`n`n---`n`n## [$NewVersion] - $Today`n`n$Body`n"
+                    $DocContent = $DocContent.Substring(0, $Matches.Index) + $Replacement + $DocContent.Substring($Matches.Index + $Matches.Length)
+                    Set-Content -Path $DocFile -Value $DocContent
+                    Write-Host "==> Updated $DocName with release header for v$NewVersion" -ForegroundColor Green
+                }
             }
         }
     }
