@@ -6,7 +6,17 @@ User-facing release notes for **Roblox Watcher**. Each version section is publis
 
 ## [Unreleased]
 
+---
+
+## [0.1.0] - 2026-11-27
+
 ### Added
+- **Multi-Instance CCTV Monitoring Grid**: Live thumbnail dashboard for all running Roblox windows with health badges, restart counters, and Anti-AFK countdowns.
+- **Unified Master Actions**: One-click controls (*Start All*, *Stop All*, *Test Jump*) across all active accounts.
+- **Silent Background Screen Capture & On-Device Windows Media OCR**: Captures game frames silently without bringing windows to the front and detects disconnect banners/error codes (`277`, `279`, `267`, `529`, etc.) locally.
+- **Dynamic Cartoon Border Tracing & Fuzzy Typography Matching**: Automatically locates and clicks in-game event icons.
+- **Stealth Anti-AFK Keep-Alive & TinyTask Compatibility**: Prevents 20-minute idle kicks using physical keyboard scan codes while restoring previous application focus and cursor position.
+- **Single-Instance Enforcement & Sleep Prevention**: Protects against duplicate processes and prevents Windows display/system sleep while monitoring is active.
 - **Reconnect Button Crop Overlay**: When a disconnect/reconnect button is recognized, a small `44×44` zoomed crop centered on its click target (with a rose border) is overlaid in the bottom-right corner of the window preview card and logged to JSONL.
 - **Single-Row 5-Box Status Ribbon**: Merged *Session Uptime* and *Active Windows* into a single *Session* card (showing full `window`/`windows` text) and locked the top ribbon to a single horizontal row (`Watcher Status`, `Session`, `Next Scan`, `Anti-AFK Keep-Alive`, `Event Icon Text`).
 - **JSONL Log Persistence & Download**: All console log messages—including base64-encoded crops of detected event icons—are now recorded in JSONL format and can be downloaded via the **Download** button in the Activity Telemetry header.
@@ -30,16 +40,3 @@ User-facing release notes for **Roblox Watcher**. Each version section is publis
 
 ### Removed
 - **System Tray Integration**: Removed the Windows system tray icon and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
-
----
-
-## [0.1.0] - 2026-11-23
-
-### Added
-- **Multi-Instance CCTV Monitoring Grid**: Live thumbnail dashboard for all running Roblox windows with health badges and Anti-AFK countdowns.
-- **Unified Master Actions**: One-click controls (*Start All*, *Stop All*, *Test Jump*, *Rescan*) across all active accounts.
-- **Silent Background Screen Capture**: Captures game frames silently in the background without bringing windows to the front or interrupting desktop work.
-- **On-Device Windows Media OCR**: Fast local text recognition using built-in Windows 10/11 OCR to detect disconnect banners and error codes (`277`, `279`, `267`, etc.).
-- **Dynamic Cartoon Border Tracing & Fuzzy Typography Matching**: Automatically locates and clicks in-game event icons.
-- **Stealth Anti-AFK Keep-Alive**: Prevents 20-minute idle kicks while restoring previous application focus and cursor position.
-- **Single-Instance Enforcement & Sleep Prevention**: Protects against duplicate processes and prevents Windows display/system sleep while monitoring is active.
