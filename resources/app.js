@@ -235,7 +235,12 @@
       pulseLabel.style.color = '#94a3b8';
     }
 
-    document.getElementById('activeWinsCount').textContent = data.instances ? data.instances.length : 0;
+    const winCount = data.instances ? data.instances.length : 0;
+    document.getElementById('activeWinsCount').textContent = winCount;
+    const winsUnitEl = document.getElementById('activeWinsUnit');
+    if (winsUnitEl) {
+      winsUnitEl.textContent = winCount === 1 ? 'window' : 'windows';
+    }
     document.getElementById('queueStatusLabel').textContent = data.queueStatus || 'Idle';
 
     const uptimeEl = document.getElementById('ribbonUptime');
@@ -289,7 +294,14 @@
     }
 
     const grid = document.getElementById('cctvGrid');
-    if (data.instances && data.instances.length > 0) {
+    const count = data.instances ? data.instances.length : 0;
+    const cols = count <= 1 ? 1 : (count <= 4 ? count : (count <= 6 || count === 9 ? 3 : 4));
+    const rows = count > 0 ? Math.ceil(count / cols) : 1;
+    grid.style.setProperty('--grid-cols', String(cols));
+    grid.dataset.count = String(count);
+    grid.dataset.rows = String(rows);
+
+    if (count > 0) {
       grid.innerHTML = data.instances.map((inst, idx) => {
         const stateStr = String(inst.state || 'IDLE');
         let badgeClass = 'badge-healthy';
@@ -312,6 +324,10 @@
           ? `<img src="data:image/jpeg;base64,${escapeHtml(inst.eventCropBase64)}" alt="Target crop" class="event-crop-overlay">`
           : '';
 
+        const reconnectCropHtml = inst.reconnectCropBase64
+          ? `<img src="data:image/jpeg;base64,${escapeHtml(inst.reconnectCropBase64)}" alt="Reconnect crop" class="reconnect-crop-overlay">`
+          : '';
+
         const errHtml = inst.failureReason
           ? `<div class="card-error-line mono" title="${escapeHtml(inst.failureReason)}">${escapeHtml(inst.failureReason)}</div>`
           : '';
@@ -320,9 +336,11 @@
           ? `Cooldown: ${inst.cooldownRemainingSecs}s`
           : '';
 
+        const thumbClass = inst.failureReason ? 'card-thumb has-error' : 'card-thumb';
+
         return `
           <div class="card ${cardClass}">
-            <div class="card-thumb">
+            <div class="${thumbClass}">
               ${thumbHtml}
               <div class="card-overlay-top">
                 <span class="tag mono">#${idx + 1}</span>
@@ -332,8 +350,9 @@
                 <span class="tag mono">${escapeHtml(inst.eventStatus || 'Standby')}</span>
               </div>
               ${eventCropHtml}
+              ${reconnectCropHtml}
+              ${errHtml}
             </div>
-            ${errHtml}
             <div class="card-footer mono">
               <span>${escapeHtml(cooldownTag)}</span>
               <span>Restarts: <strong style="color:#f1f5f9">${escapeHtml(inst.restarts ?? 0)}</strong></span>

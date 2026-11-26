@@ -30,7 +30,9 @@ impl Classifier {
         })
     }
 
-    /// Finds the reconnect button in detected text elements matching any configured phrase
+    /// Finds the reconnect button in detected text elements matching any configured phrase.
+    /// Narrows the returned bounding box and target_point to the exact matched button word_boxes
+    /// so merged lines (e.g. "Cancel Retry") or varying modal heights never misplace the click.
     pub fn find_reconnect_button(
         items: &[DetectedText],
         button_phrases: &[String],
@@ -40,48 +42,139 @@ impl Classifier {
             return None;
         }
 
-        for phrase in button_phrases {
-            let target = phrase.trim().to_lowercase();
-            if target.is_empty() {
+        // Score tuple: (exact_line_match, exact_token_count, is_short_line, y_tenths_millis, matched_item)
+        // Higher tuple wins.
+        let mut best: Option<(u8, u8, i32, i32, DetectedText)> = None;
+
+        for item in items {
+            if Self::is_ignored(&item.text, ignore_phrases) {
+                continue;
+            }
+            let trimmed = item.text.trim().to_lowercase();
+            if trimmed.is_empty() {
                 continue;
             }
 
-            for item in items {
-                if Self::is_ignored(&item.text, ignore_phrases) {
+            for phrase in button_phrases {
+                let target = phrase.trim().to_lowercase();
+                if target.is_empty() {
                     continue;
                 }
-                let trimmed = item.text.trim().to_lowercase();
-                if trimmed == target || trimmed.contains(&target) {
-                    return Some(item.clone());
+                let target_tokens: Vec<&str> = target.split_whitespace().collect();
+                if target_tokens.is_empty() {
+                    continue;
                 }
 
-                // Check individual words or tokens if target matches with fuzzy tolerance
-                let target_tokens: Vec<&str> = target.split_whitespace().collect();
-                if target_tokens.len() == 1 {
-                    let tok = target_tokens[0];
-                    if item.word_boxes.iter().any(|wb| {
-                        let w = wb.word.trim().to_lowercase();
-                        w == tok || Self::word_matches(&w, tok)
-                    }) {
-                        return Some(item.clone());
-                    }
-                } else if !target_tokens.is_empty() {
-                    let item_words: Vec<String> = if !item.word_boxes.is_empty() {
-                        item.word_boxes.iter().map(|w| w.word.to_lowercase()).collect()
-                    } else {
-                        item.text.split_whitespace().map(|w| w.to_lowercase()).collect()
-                    };
-                    let matched_count = target_tokens
+                let mut matched_candidate: Option<(u8, u8, i32, DetectedText)> = None;
+
+                if !item.word_boxes.is_empty() {
+                    let norm_words: Vec<String> = item
+                        .word_boxes
                         .iter()
-                        .filter(|tok| item_words.iter().any(|w| w == *tok || Self::word_matches(w, tok)))
-                        .count();
-                    if matched_count == target_tokens.len() {
-                        return Some(item.clone());
+                        .map(|wb| wb.word.trim().to_lowercase())
+                        .collect();
+
+                    // Prefer contiguous span of word_boxes matching target_tokens
+                    if norm_words.len() >= target_tokens.len() {
+                        for start in 0..=(norm_words.len() - target_tokens.len()) {
+                            let all_match = target_tokens.iter().enumerate().all(|(k, tok)| {
+                                let w = &norm_words[start + k];
+                                w == *tok || Self::word_matches(w, tok)
+                            });
+                            if all_match {
+                                let slice = &item.word_boxes[start..start + target_tokens.len()];
+                                let min_x = slice.iter().map(|w| w.bounding_box.min_x).fold(1.0f32, f32::min);
+                                let min_y = slice.iter().map(|w| w.bounding_box.min_y).fold(1.0f32, f32::min);
+                                let max_x = slice.iter().map(|w| w.bounding_box.max_x).fold(0.0f32, f32::max);
+                                let max_y = slice.iter().map(|w| w.bounding_box.max_y).fold(0.0f32, f32::max);
+                                let matched_text = slice
+                                    .iter()
+                                    .map(|w| w.word.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+
+                                let exact_line = u8::from(trimmed == target);
+                                let exact_tokens = u8::from(norm_words.len() == target_tokens.len());
+                                let extra_words = -((norm_words.len() - target_tokens.len()) as i32);
+
+                                matched_candidate = Some((
+                                    exact_line,
+                                    exact_tokens,
+                                    extra_words,
+                                    DetectedText {
+                                        text: matched_text,
+                                        bounding_box: NormalizedRect::new(min_x, min_y, max_x, max_y),
+                                        target_point: Some(NormalizedPoint {
+                                            x: (min_x + max_x) * 0.5,
+                                            y: (min_y + max_y) * 0.5,
+                                        }),
+                                        whole_icon_box: None,
+                                        word_boxes: slice.to_vec(),
+                                    },
+                                ));
+                                break;
+                            }
+                        }
+                    }
+
+                    // Fallback if OCR merged tokens without spaces or punctuated a single word
+                    if matched_candidate.is_none() && (trimmed == target || trimmed.contains(&target)) {
+                        let exact_line = u8::from(trimmed == target);
+                        let extra_words = -((norm_words.len().saturating_sub(target_tokens.len())) as i32);
+                        matched_candidate = Some((
+                            exact_line,
+                            0,
+                            extra_words,
+                            DetectedText {
+                                text: item.text.clone(),
+                                bounding_box: item.bounding_box.clone(),
+                                target_point: Some(NormalizedPoint {
+                                    x: item.bounding_box.mid_x(),
+                                    y: item.bounding_box.mid_y(),
+                                }),
+                                whole_icon_box: None,
+                                word_boxes: item.word_boxes.clone(),
+                            },
+                        ));
+                    }
+                } else if trimmed == target || trimmed.contains(&target) {
+                    let exact_line = u8::from(trimmed == target);
+                    let word_count = item.text.split_whitespace().count();
+                    let extra_words = -((word_count.saturating_sub(target_tokens.len())) as i32);
+                    matched_candidate = Some((
+                        exact_line,
+                        exact_line,
+                        extra_words,
+                        DetectedText {
+                            text: item.text.clone(),
+                            bounding_box: item.bounding_box.clone(),
+                            target_point: Some(NormalizedPoint {
+                                x: item.bounding_box.mid_x(),
+                                y: item.bounding_box.mid_y(),
+                            }),
+                            whole_icon_box: None,
+                            word_boxes: Vec::new(),
+                        },
+                    ));
+                }
+
+                if let Some((exact_line, exact_tokens, extra_words, candidate)) = matched_candidate {
+                    let y_score = (candidate.bounding_box.mid_y() * 10000.0) as i32;
+                    let replace = match &best {
+                        None => true,
+                        Some((b_el, b_et, b_ew, b_y, _)) => {
+                            (exact_line, exact_tokens, extra_words, y_score)
+                                > (*b_el, *b_et, *b_ew, *b_y)
+                        }
+                    };
+                    if replace {
+                        best = Some((exact_line, exact_tokens, extra_words, y_score, candidate));
                     }
                 }
             }
         }
-        None
+
+        best.map(|(_, _, _, _, item)| item)
     }
 
     /// Levenshtein edit distance between two strings
@@ -435,5 +528,42 @@ mod tests {
 
         let typo_merged = vec![make_item("TurkoyHunt 22,519")];
         assert!(Classifier::find_event_target(&typo_merged, &keywords, 0.40).is_some());
+    }
+
+    #[test]
+    fn test_find_reconnect_button_narrows_merged_line_and_ignores_body_text() {
+        let body = DetectedText {
+            text: "You were disconnected. Please reconnect to continue.".to_string(),
+            bounding_box: NormalizedRect::new(0.25, 0.40, 0.75, 0.46),
+            target_point: None,
+            whole_icon_box: None,
+            word_boxes: vec![
+                DetectedWord { word: "Please".into(), bounding_box: NormalizedRect::new(0.42, 0.40, 0.48, 0.46) },
+                DetectedWord { word: "reconnect".into(), bounding_box: NormalizedRect::new(0.49, 0.40, 0.58, 0.46) },
+            ],
+        };
+
+        // Merged bottom button row: "Opuść" on the left, "Połącz ponownie" on the right
+        let merged_buttons = DetectedText {
+            text: "Opuść Połącz ponownie".to_string(),
+            bounding_box: NormalizedRect::new(0.28, 0.72, 0.72, 0.78),
+            target_point: None,
+            whole_icon_box: None,
+            word_boxes: vec![
+                DetectedWord { word: "Opuść".into(), bounding_box: NormalizedRect::new(0.28, 0.72, 0.40, 0.78) },
+                DetectedWord { word: "Połącz".into(), bounding_box: NormalizedRect::new(0.52, 0.72, 0.61, 0.78) },
+                DetectedWord { word: "ponownie".into(), bounding_box: NormalizedRect::new(0.62, 0.72, 0.72, 0.78) },
+            ],
+        };
+
+        let items = vec![body, merged_buttons];
+        let phrases = vec!["Reconnect".to_string(), "Połącz ponownie".to_string()];
+        let found = Classifier::find_reconnect_button(&items, &phrases, &[]).expect("button found");
+
+        assert_eq!(found.text, "Połącz ponownie");
+        let pt = found.click_point();
+        // Exact center of [0.52..0.72] x [0.72..0.78] is (0.62, 0.75), not whole-line midpoint (0.50, 0.75) or body text (y=0.43)
+        assert!((pt.x - 0.62).abs() < 0.001, "expected x ~ 0.62, got {}", pt.x);
+        assert!((pt.y - 0.75).abs() < 0.001, "expected y ~ 0.75, got {}", pt.y);
     }
 }

@@ -20,6 +20,14 @@ pub trait OcrProvider: Send + Sync {
         sidebar_ratio: f32,
         timeout: Duration,
     ) -> Result<Vec<DetectedText>, String>;
+    fn scan_region_upscaled(
+        &self,
+        _frame: &CapturedFrame,
+        _region: NormalizedRect,
+        _timeout: Duration,
+    ) -> Result<Vec<DetectedText>, String> {
+        Ok(Vec::new())
+    }
 }
 
 pub struct WindowsMediaOcrService;
@@ -242,6 +250,70 @@ impl OcrProvider for WindowsMediaOcrService {
             for wb in &mut item.word_boxes {
                 wb.bounding_box.min_x *= width_factor;
                 wb.bounding_box.max_x *= width_factor;
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn scan_region_upscaled(
+        &self,
+        frame: &CapturedFrame,
+        region: NormalizedRect,
+        timeout: Duration,
+    ) -> Result<Vec<DetectedText>, String> {
+        let min_x = region.min_x.clamp(0.0, 0.95);
+        let min_y = region.min_y.clamp(0.0, 0.95);
+        let max_x = region.max_x.clamp(min_x + 0.05, 1.0);
+        let max_y = region.max_y.clamp(min_y + 0.05, 1.0);
+
+        let fw = frame.width.max(1) as f32;
+        let fh = frame.height.max(1) as f32;
+        let crop_x = (min_x * fw).round() as u32;
+        let crop_y = (min_y * fh).round() as u32;
+        let crop_w = ((max_x - min_x) * fw).round().max(32.0) as u32;
+        let crop_h = ((max_y - min_y) * fh).round().max(32.0) as u32;
+
+        let Some(img) = image::RgbaImage::from_raw(
+            frame.width as u32,
+            frame.height as u32,
+            frame.rgba_data.clone(),
+        ) else {
+            return Ok(Vec::new());
+        };
+
+        let crop_w = crop_w.min(img.width().saturating_sub(crop_x)).max(1);
+        let crop_h = crop_h.min(img.height().saturating_sub(crop_y)).max(1);
+        let cropped = image::imageops::crop_imm(&img, crop_x, crop_y, crop_w, crop_h).to_image();
+
+        let max_dim = crop_w.max(crop_h).max(1) as f32;
+        let scale = (2200.0 / max_dim).clamp(1.5, 2.5);
+        let up_w = ((crop_w as f32) * scale).round() as u32;
+        let up_h = ((crop_h as f32) * scale).round() as u32;
+
+        let upscaled = image::imageops::resize(
+            &cropped,
+            up_w,
+            up_h,
+            image::imageops::FilterType::CatmullRom,
+        );
+
+        let sub_frame = CapturedFrame::new(up_w as i32, up_h as i32, upscaled.into_raw());
+        let mut items = Self::scan_internal(&sub_frame, timeout)?;
+
+        let span_x = max_x - min_x;
+        let span_y = max_y - min_y;
+        let map_rect = |r: &mut NormalizedRect| {
+            r.min_x = min_x + r.min_x * span_x;
+            r.max_x = min_x + r.max_x * span_x;
+            r.min_y = min_y + r.min_y * span_y;
+            r.max_y = min_y + r.max_y * span_y;
+        };
+
+        for item in &mut items {
+            map_rect(&mut item.bounding_box);
+            for wb in &mut item.word_boxes {
+                map_rect(&mut wb.bounding_box);
             }
         }
 

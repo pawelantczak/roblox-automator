@@ -107,6 +107,7 @@ pub struct InstanceCard {
     pub ocr_failures: u32,
     pub screenshot_base64: Option<String>,
     pub event_crop_base64: Option<String>,
+    pub reconnect_crop_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

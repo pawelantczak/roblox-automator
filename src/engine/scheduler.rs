@@ -17,6 +17,7 @@ pub struct InstanceTracker {
     pub last_frame_hash: Option<u64>,
     pub cached_thumbnail: Option<String>,
     pub event_crop_base64: Option<String>,
+    pub reconnect_crop_base64: Option<String>,
     pub cached_ocr: Option<Vec<DetectedText>>,
     pub restarts: u32,
     pub ocr_failures: u32,
@@ -38,6 +39,7 @@ impl InstanceTracker {
             last_frame_hash: None,
             cached_thumbnail: None,
             event_crop_base64: None,
+            reconnect_crop_base64: None,
             cached_ocr: None,
             restarts: 0,
             ocr_failures: 0,
@@ -64,6 +66,7 @@ impl InstanceTracker {
         self.next_afk_deadline = None;
         self.event_status = standby_label.to_string();
         self.event_crop_base64 = None;
+        self.reconnect_crop_base64 = None;
     }
 
     /// Initializes anti-AFK deadline safely for newly active or discovered instances.

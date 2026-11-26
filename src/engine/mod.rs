@@ -648,11 +648,25 @@ impl EngineWorker {
                 })
                 .map(|item| item.text.clone());
 
-            let reconnect_btn = Classifier::find_reconnect_button(
+            let mut reconnect_btn = Classifier::find_reconnect_button(
                 &detected_items,
                 &self.config.reconnect_button_phrases,
                 &self.config.ignore_phrases,
             );
+
+            if disconnect_match.is_some() && reconnect_btn.is_none() {
+                if let Ok(modal_items) = self.ocr_svc.scan_region_upscaled(
+                    &frame,
+                    crate::models::NormalizedRect::new(0.15, 0.15, 0.85, 0.90),
+                    ocr_timeout,
+                ) {
+                    reconnect_btn = Classifier::find_reconnect_button(
+                        &modal_items,
+                        &self.config.reconnect_button_phrases,
+                        &self.config.ignore_phrases,
+                    );
+                }
+            }
 
             let is_disconnected = disconnect_match.is_some() || reconnect_btn.is_some();
 
@@ -663,13 +677,27 @@ impl EngineWorker {
                         reconnect_btn.as_ref().map(|b| b.text.as_str()).unwrap_or("")
                     )
                 });
-                self.logs.push(
+                let reconnect_crop = reconnect_btn.as_ref().and_then(|btn| {
+                    let pt = btn.click_point();
+                    self.capture_svc.encode_point_crop_base64(
+                        &frame,
+                        &pt,
+                        40,
+                        self.config.thumbnail_jpeg_quality,
+                    )
+                });
+                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                    tracker.reconnect_crop_base64 = reconnect_crop.clone();
+                    tracker.event_crop_base64 = None;
+                }
+                self.logs.push_with_icon(
                     LogLevel::Warn,
                     Some(win.instance_id),
                     format!(
                         "Disconnect detected on window #{} (PID {}): {}",
                         win_num, win.pid, matched_label
                     ),
+                    reconnect_crop,
                 );
 
                 let cooldown_active = self
@@ -756,6 +784,9 @@ impl EngineWorker {
             }
 
             // 2. Healthy state & optional event navigation
+            if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                tracker.reconnect_crop_base64 = None;
+            }
             let mut event_status = self.config.ui_strings.status_healthy.clone();
             if self.config.auto_teleport_to_event && !self.config.event_target_keywords.is_empty() {
                 if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
@@ -1034,6 +1065,7 @@ impl EngineWorker {
                     ocr_failures: t.ocr_failures,
                     screenshot_base64: t.cached_thumbnail.clone(),
                     event_crop_base64: t.event_crop_base64.clone(),
+                    reconnect_crop_base64: t.reconnect_crop_base64.clone(),
                 });
             }
         }

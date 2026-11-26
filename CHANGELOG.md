@@ -9,13 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Fixed Preview Card Height**: Moved the failure/reconnect cooldown status bar inside the bottom of the preview image as an overlay so preview cards keep a constant height regardless of window state.
+- **Reconnect Button Positioning**: Improved reconnect button detection to pinpoint the exact matched button text rather than whole merged button rows or error description text, and added an upscaled center-region scan fallback when disconnect text is seen across modals of varying heights.
+
 ### Changed
+- **Balanced Preview Grid & Fixed Window Width**: Updated the preview grid to fit 1–4 windows in a single row, switch to 3×2 equal rows for 6 windows (and 3×3 for 9), scale cards fluidly, lock the application window width to `1040px` while keeping height resizable, and always show the full preview section without scrolling even as new windows appear at runtime.
 - **Initial Preview Capture & UI Defaults**: Captured initial window preview thumbnails immediately on startup, updated default scan interval to 15s and UI refresh interval to 2s (configured in seconds), renamed the event ribbon label to *Event Icon Text*, shortened the log download button label to *Download*, and removed process/instance IDs from preview cards and console log lines.
 - **UI Streamlining & Scrollbar Polish**: Removed the *Scan* and *Diagnostics* buttons, removed *Target Place ID* from the dashboard and settings, and styled the settings dialog scrollbar to match the dark theme.
 - **Rebranded to Roblox Watcher**: Renamed the application to *Roblox Watcher*, added the custom bundled app icon to both the window titlebar/taskbar and dashboard header, and removed the "Windows Multi-Instance CCTV" header subtitle.
 
 ### Added
-- **Single-Row 5-Box Status Ribbon**: Merged *Session Uptime* and *Active Windows* into a single *Session & Windows* card and locked the top ribbon to a single horizontal row (`Watcher Status`, `Session & Windows`, `Next Scan`, `Anti-AFK Keep-Alive`, `Event Icon Text`).
+- **Reconnect Button Crop Overlay**: When a disconnect/reconnect button is recognized, a small `44×44` zoomed crop centered on its click target (with a rose border) is overlaid in the bottom-right corner of the window preview card and logged to JSONL.
+- **Single-Row 5-Box Status Ribbon**: Merged *Session Uptime* and *Active Windows* into a single *Session* card (showing full `window`/`windows` text) and locked the top ribbon to a single horizontal row (`Watcher Status`, `Session`, `Next Scan`, `Anti-AFK Keep-Alive`, `Event Icon Text`).
 - **JSONL Log Persistence & Download**: All console log messages—including base64-encoded crops of detected event icons—are now recorded in JSONL format and can be downloaded via the new **Download** button in the Activity Telemetry header.
 - **Console Scroll Pause & Resume Button**: Scrolling up in the Activity Telemetry console automatically pauses live log updates to preserve your scroll position, and a **Resume Logs** button next to *Clear Console* resumes live updates and catches up.
 - **Event Target Crop Overlay**: When an event icon is recognized, a small `44×44` zoomed crop centered on the traced target point (with a cyan crosshair) is overlaid in the bottom-right corner of the window preview card.

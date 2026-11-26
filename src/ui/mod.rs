@@ -55,7 +55,8 @@ pub fn run_app(initial_config: Config) -> anyhow::Result<()> {
     let mut builder = WindowBuilder::new()
         .with_title(&initial_config.ui_strings.app_title)
         .with_inner_size(LogicalSize::new(1040.0, 680.0))
-        .with_min_inner_size(LogicalSize::new(820.0, 520.0));
+        .with_min_inner_size(LogicalSize::new(1040.0, 520.0))
+        .with_max_inner_size(LogicalSize::new(1040.0, 4096.0));
 
     if let Some(icon) = load_window_icon() {
         builder = builder.with_window_icon(Some(icon));
