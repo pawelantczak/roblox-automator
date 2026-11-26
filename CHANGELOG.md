@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Balanced Preview Grid & Fixed Window Width**: Updated the preview grid to fit 1–4 windows in a single row, switch to 3×2 equal rows for 6 windows (and 3×3 for 9), scale cards fluidly, lock the application window width to `1040px` while keeping height resizable, and always show the full preview section without scrolling even as new windows appear at runtime.
-- **Initial Preview Capture & UI Defaults**: Captured initial window preview thumbnails immediately on startup, updated default scan interval to 15s and UI refresh interval to 2s (configured in seconds), renamed the event ribbon label to *Event Icon Text*, shortened the log download button label to *Download*, and removed process/instance IDs from preview cards and console log lines.
+- **Initial & Idle Preview Refresh**: Captured initial window preview thumbnails immediately on startup and refreshed them periodically (every 10s when frames change) while idle, updated default scan interval to 15s and UI refresh interval to 2s (configured in seconds), renamed the event ribbon label to *Event Icon Text*, shortened the log download button label to *Download*, and removed process/instance IDs from preview cards and console log lines.
 - **UI Streamlining & Scrollbar Polish**: Removed the *Scan* and *Diagnostics* buttons, removed *Target Place ID* from the dashboard and settings, and styled the settings dialog scrollbar to match the dark theme.
 - **Rebranded to Roblox Watcher**: Renamed the application to *Roblox Watcher*, added the custom bundled app icon to both the window titlebar/taskbar and dashboard header, and removed the "Windows Multi-Instance CCTV" header subtitle.
 

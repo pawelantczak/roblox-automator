@@ -176,10 +176,11 @@ impl EngineWorker {
         let now = Instant::now();
         // Perform initial passive discovery and thumbnail capture on startup so UI shows previews immediately.
         let initial_windows = self.discover_and_sync_windows(now, false);
-        self.capture_initial_thumbnails(&initial_windows);
+        self.capture_idle_thumbnails(&initial_windows, false);
         self.emit_snapshot(now);
 
         let mut next_idle_discovery_deadline = now + Duration::from_secs(3);
+        let mut next_idle_thumb_refresh_deadline = now + Duration::from_secs(10);
         let mut next_ui_deadline = now + Duration::from_millis(self.config.ui_refresh_interval_ms);
 
         while !self.shutdown_flag.load(Ordering::Relaxed) {
@@ -205,10 +206,14 @@ impl EngineWorker {
                     self.ui_dirty = true;
                 }
             } else if now >= next_idle_discovery_deadline {
-                // While stopped, skip OCR/automation completely; only keep window list & initial thumbnails fresh.
+                // While stopped, skip OCR/automation completely; keep window list fresh and occasionally refresh thumbnails.
                 let windows = self.discover_and_sync_windows(now, false);
-                self.capture_initial_thumbnails(&windows);
+                let refresh_thumbs = now >= next_idle_thumb_refresh_deadline;
+                self.capture_idle_thumbnails(&windows, refresh_thumbs);
                 next_idle_discovery_deadline = Instant::now() + Duration::from_secs(3);
+                if refresh_thumbs {
+                    next_idle_thumb_refresh_deadline = Instant::now() + Duration::from_secs(10);
+                }
             }
 
             if now >= next_ui_deadline {
@@ -517,20 +522,23 @@ impl EngineWorker {
     }
 
     /// Captures a one-time thumbnail for any newly discovered window that has no cached preview yet.
-    fn capture_initial_thumbnails(&mut self, windows: &[RobloxWindowInfo]) {
+    fn capture_idle_thumbnails(&mut self, windows: &[RobloxWindowInfo], force_refresh: bool) {
         for win in windows {
             if self.shutdown_flag.load(Ordering::Relaxed) {
                 break;
             }
-            let needs_thumb = self
+            let (needs_thumb, prev_hash) = self
                 .trackers
                 .get(&win.instance_id)
-                .map(|t| t.cached_thumbnail.is_none())
-                .unwrap_or(false);
-            if !needs_thumb {
+                .map(|t| (t.cached_thumbnail.is_none(), t.last_frame_hash))
+                .unwrap_or((false, None));
+            if !force_refresh && !needs_thumb {
                 continue;
             }
             if let Ok(frame) = self.capture_svc.capture_window(win.hwnd) {
+                if !needs_thumb && prev_hash == Some(frame.frame_hash) {
+                    continue;
+                }
                 let thumb = self.capture_svc.encode_thumbnail_base64(
                     &frame,
                     self.config.thumbnail_max_width,
@@ -539,6 +547,7 @@ impl EngineWorker {
                 );
                 if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
                     tracker.cached_thumbnail = thumb;
+                    tracker.last_frame_hash = Some(frame.frame_hash);
                     self.ui_dirty = true;
                 }
             }
