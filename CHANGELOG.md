@@ -9,6 +9,7 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 ## [Unreleased]
 
 ### Added
+- `README.md` (`docs/images/dashboard.png` screenshot path): added end-user documentation covering auto-reconnect, 20-minute Anti-AFK kick prevention, TinyTask compatibility, and quick-start usage without mixing assets into `resources/`.
 - `InstanceCard.reconnect_crop_base64` (`src/models/state.rs`) and `InstanceTracker.reconnect_crop_base64` (`src/engine/scheduler.rs`): captures `40px` radius JPEG crops via `encode_point_crop_base64` around `btn.click_point()`, logs via `BoundedLogQueue::push_with_icon`, and renders `.card-thumb .reconnect-crop-overlay` (`44×44`, `--rose-500` border) in `resources/app.js` / `resources/styles.css`.
 - `BoundedLogQueue::new_with_file` & `export_jsonl` (`src/models/state.rs`), `UiCommand::ExportLogsJsonl` / `UiEvent::LogsJsonlExported` (`src/models/ipc.rs`): persists structured JSONL logs (`timestamp`, `level`, `instanceId`, `message`, `iconBase64`) to `roblox-watcher.jsonl` and streams export to `#downloadLogsBtn` in `resources/app.js`.
 - `InstanceCard.event_crop_base64` (`src/models/state.rs`) and `.card-thumb .event-crop-overlay` (`resources/styles.css`, `resources/app.js`): overlays a `44×44` crop centered on the traced event target point.

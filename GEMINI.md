@@ -21,6 +21,7 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
   - `src/storage.rs`: Atomic JSON configuration (`config.json`) writes and versioned schema migration.
   - `src/main.rs`: Pure startup and composition root (WebView2 runtime check, RAII Win32 Named Mutex guard, config loading, and UI launch).
   - `resources/`: Locally bundled `index.html`, `styles.css`, and `app.js` with strict Content Security Policy and typed IPC bridging (zero CDN dependencies).
+  - `README.md` & `docs/images/`: End-user documentation and README screenshots (kept strictly separate from bundled `resources/`).
   - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` and `RELEASE_NOTES.md` headers.
   - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-watcher.exe` alongside native ZIP archives, extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
 
