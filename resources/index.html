@@ -1,408 +1,202 @@
 <!DOCTYPE html>
-<html lang="en" class="dark h-full w-full overflow-hidden">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Roblox Automator</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            dark: {
-              950: '#070A0F',
-              900: '#0B0F17',
-              850: '#0F1622',
-              800: '#141D2D',
-              700: '#1E293B',
-            }
-          }
-        }
-      }
-    }
-  </script>
-  <style>
-    html, body {
-      height: 100%;
-      width: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden !important;
-      box-sizing: border-box;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    * { box-sizing: border-box; }
-    ::-webkit-scrollbar { display: none; }
-    #logsConsole {
-      -webkit-user-select: text;
-      user-select: text;
-    }
-    #logsConsole::-webkit-scrollbar {
-      display: block !important;
-      width: 6px;
-    }
-    #logsConsole::-webkit-scrollbar-track {
-      background: #070A0F;
-      border-radius: 4px;
-    }
-    #logsConsole::-webkit-scrollbar-thumb {
-      background: #1E293B;
-      border-radius: 4px;
-    }
-    #logsConsole::-webkit-scrollbar-thumb:hover {
-      background: #38BDF8;
-    }
-  </style>
+  <title>Roblox Watcher</title>
+  <style>/* __LOCAL_CSS__ */</style>
 </head>
-<body class="bg-dark-900 text-slate-100 h-full w-full flex flex-col font-sans antialiased selection:bg-cyan-500 selection:text-white">
-
-  <!-- Header (Fixed 54px) -->
-  <header class="h-[54px] border-b border-slate-800/80 bg-dark-850 px-4 flex items-center justify-between shrink-0">
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-2.5">
-        <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-base">
-          ⊞
-        </div>
-        <div class="flex flex-col font-mono">
-          <span class="font-black text-white text-base tracking-tight leading-tight">
-            Roblox <span class="text-cyan-400">Automator</span>
-          </span>
-          <span class="text-[10px] text-slate-400 leading-none">Windows Multi-Instance CCTV</span>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <img src="__APP_ICON_DATA_URI__" alt="Roblox Watcher" class="brand-icon-img">
+        <div class="mono">
+          <div class="brand-title">Roblox <span>Watcher</span></div>
         </div>
       </div>
-    </div>
 
-    <!-- Center Status Strip -->
-    <div class="flex items-center gap-3 font-mono text-xs">
-      <div id="instancesCountBadge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-dark-950 border border-slate-800 text-slate-300">
-        <span class="text-cyan-400 font-bold" id="activeWinsCount">0</span>
-        <span>Windows</span>
+      <div class="header-actions">
+        <button id="testJumpBtn" class="btn">Test Jump</button>
+        <button id="openSettingsBtn" class="btn">Settings</button>
+        <button id="toggleMasterBtn" class="btn btn-primary mono">Start All</button>
       </div>
+    </header>
 
-      <div id="pulseBadge" class="flex items-center gap-2 px-3 py-1 rounded-lg bg-dark-950 border border-slate-800">
-        <span class="relative flex h-2 w-2">
-          <span id="pulsePing" class="hidden absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75 animate-ping"></span>
-          <span id="pulseDot" class="relative inline-flex rounded-full h-2 w-2 bg-slate-600 transition-colors"></span>
-        </span>
-        <span id="pulseLabel" class="text-slate-400 font-medium text-xs">Idle</span>
-      </div>
+    <main class="app-main">
+      <!-- Ribbon of Stat Boxes -->
+      <section class="stats-ribbon">
+        <div class="stat-box">
+          <div class="stat-label">Watcher Status</div>
+          <div class="stat-value-row">
+            <div class="stat-main mono">
+              <span id="pulseDot" class="pulse-dot"></span>
+              <span id="pulseLabel">STOPPED</span>
+            </div>
+            <span id="queueStatusLabel" class="stat-sub mono">Idle</span>
+          </div>
+        </div>
 
-      <div class="text-[11px] text-slate-400 hidden md:flex items-center gap-1.5">
-        <span>Queue:</span>
-        <span id="queueStatusLabel" class="text-emerald-400 font-semibold">Idle</span>
-      </div>
-    </div>
+        <div class="stat-box">
+          <div class="stat-header-row">
+            <span class="stat-label">Session &amp; Windows</span>
+            <span class="stat-sub mono"><strong id="activeWinsCount" style="color:#38bdf8">0</strong> win</span>
+          </div>
+          <div class="stat-value-row">
+            <div class="stat-main mono">
+              <span id="ribbonUptime">--</span>
+            </div>
+            <span id="ribbonTotalRestarts" class="stat-sub mono">0 rejoins</span>
+          </div>
+        </div>
 
-    <!-- Actions (Common for ALL instances) -->
-    <div class="flex items-center gap-2">
-      <button id="rescanBtn" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-dark-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-medium transition">
-        <span>🔄</span>
-        <span>Scan</span>
-      </button>
+        <div class="stat-box">
+          <div class="stat-label">Next Scan</div>
+          <div class="stat-value-row">
+            <div class="stat-main mono">
+              <span id="ribbonScanStatus">PAUSED</span>
+            </div>
+            <div class="afk-stepper mono" title="Adjust scan interval (seconds)">
+              <span id="ribbonScanSeconds" class="afk-stepper-val">15s</span>
+              <div class="afk-arrows">
+                <button type="button" id="scanUpBtn" class="afk-arrow-btn" aria-label="Increase scan seconds">▲</button>
+                <button type="button" id="scanDownBtn" class="afk-arrow-btn" aria-label="Decrease scan seconds">▼</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <button id="testJumpBtn" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-dark-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-medium transition">
-        <span>⚡</span>
-        <span>Test Jump</span>
-      </button>
+        <div class="stat-box">
+          <div class="stat-label">Anti-AFK Keep-Alive</div>
+          <div class="stat-value-row">
+            <div class="stat-main mono">
+              <span id="ribbonAfkStatus">PAUSED</span>
+            </div>
+            <div class="afk-stepper mono" title="Adjust global Anti-AFK interval (minutes)">
+              <span id="ribbonAfkMinutes" class="afk-stepper-val">10m</span>
+              <div class="afk-arrows">
+                <button type="button" id="afkUpBtn" class="afk-arrow-btn" aria-label="Increase AFK minutes">▲</button>
+                <button type="button" id="afkDownBtn" class="afk-arrow-btn" aria-label="Decrease AFK minutes">▼</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <button id="openSettingsBtn" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-dark-950/80 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-medium transition">
-        <span>⚙️</span>
-        <span>Settings</span>
-      </button>
+        <div class="stat-box">
+          <div class="stat-header-row">
+            <span class="stat-label">Event Icon Text</span>
+            <label class="ribbon-toggle mono" title="Enable or disable event icon tracking">
+              <input type="checkbox" id="ribbonEventEnabled">
+              <span id="ribbonEventToggleLabel">OFF</span>
+            </label>
+          </div>
+          <div class="stat-value-row">
+            <input type="text" id="ribbonEventKeywords" placeholder="e.g. turkey hunt" class="ribbon-input mono">
+          </div>
+        </div>
+      </section>
 
-      <!-- Global Master Toggle -->
-      <button id="toggleMasterBtn" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition shadow-lg bg-cyan-500 hover:bg-cyan-400 text-dark-950 font-mono shadow-cyan-500/20">
-        <span class="w-2 h-2 rounded-full bg-dark-950"></span>
-        <span id="toggleMasterText">Start All</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- Main Body Content: CCTV Grid + Bottom Collapsible Logs Panel -->
-  <main class="flex-1 flex flex-col min-h-0 p-3 gap-2 overflow-hidden bg-dark-900">
-    
-    <!-- CCTV Grid Area (Scrollable if > 8 windows) -->
-    <div class="flex-1 min-h-0 overflow-y-auto pr-1">
-      <div id="cctvGrid" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <!-- Rendered dynamically via JS -->
-        <div class="col-span-full h-48 border border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-500 gap-2">
-          <span class="text-3xl">🔍</span>
-          <span class="font-mono text-xs">Scanning for active RobloxPlayerBeta.exe windows...</span>
+      <div class="grid-scroll">
+        <div id="cctvGrid" class="cctv-grid">
+          <div class="empty-state mono">
+            <span>Scanning for active RobloxPlayerBeta.exe windows...</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Bottom Telemetry & Logs Drawer (Fixed 130px) -->
-    <section class="h-[130px] rounded-xl bg-dark-850 border border-slate-800 flex flex-col overflow-hidden shrink-0 shadow-inner">
-      <div class="h-7 px-3 bg-dark-950 border-b border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-400 shrink-0">
-        <div class="flex items-center gap-3">
-          <span class="font-bold text-slate-200">Activity Telemetry</span>
-          <span>Target Event: <strong id="footerTargetLabel" class="text-cyan-400">Turkey Hunt</strong></span>
-          <span>Next Anti-AFK: <strong id="footerAfkTimer" class="text-cyan-300">--</strong></span>
+      <section class="logs-panel">
+        <div class="logs-header mono">
+          <div style="display:flex;gap:14px">
+            <strong style="color:#f1f5f9">Activity Telemetry</strong>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button id="resumeLogsBtn" class="btn btn-resume hidden" style="padding:2px 8px;font-size:10px">Resume Logs</button>
+            <button id="downloadLogsBtn" class="btn" style="padding:2px 8px;font-size:10px">Download</button>
+            <button id="clearLogsBtn" class="btn" style="padding:2px 8px;font-size:10px">Clear Console</button>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <button id="clearLogsBtn" class="hover:text-cyan-400 transition">Clear Console</button>
+        <div id="logsConsole" class="logs-console">
+          <div class="mono" style="color:#64748b">// Waiting for watcher activation...</div>
         </div>
-      </div>
-      <div id="logsConsole" class="flex-1 p-2 font-mono text-[11px] leading-relaxed overflow-y-auto space-y-0.5">
-        <div class="text-slate-500">// Waiting for watcher activation...</div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 
   <!-- Settings Modal -->
-  <div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="w-full max-w-lg rounded-2xl bg-dark-850 border border-slate-700/80 p-5 shadow-2xl space-y-4 font-sans text-xs">
-      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-        <h3 class="font-bold text-white text-sm font-mono flex items-center gap-2">
-          <span>⚙️</span>
-          <span>Global Settings (Applies to ALL Windows)</span>
-        </h3>
-        <button id="closeSettingsBtn" class="text-slate-400 hover:text-white text-base">✕</button>
+  <div id="settingsModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <strong class="mono" style="font-size:14px">Global Settings</strong>
+        <button id="closeSettingsBtn" class="btn" style="padding:2px 8px">✕</button>
       </div>
 
-      <form id="settingsForm" class="space-y-3 font-mono">
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-slate-400 text-[11px] mb-1">Check Interval (s)</label>
-            <input type="number" id="cfgInterval" step="0.5" min="1" max="60" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+      <div id="settingsError" class="error-banner mono hidden"></div>
+
+      <form id="settingsForm" class="mono">
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Scan Interval (1-60s)</label>
+            <input type="number" id="cfgInterval" step="0.5" min="1" max="60" class="form-input">
           </div>
-          <div>
-            <label class="block text-slate-400 text-[11px] mb-1">Reconnect Cooldown (s)</label>
-            <input type="number" id="cfgCooldown" step="1" min="5" max="300" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+          <div class="form-group">
+            <label class="form-label">UI Refresh (0.5-10s)</label>
+            <input type="number" id="cfgUiRefreshSec" step="0.5" min="0.5" max="10" class="form-input">
           </div>
         </div>
 
-        <div>
-          <label class="block text-slate-400 text-[11px] mb-1">Target Place ID (Fallback Rejoin)</label>
-          <input type="text" id="cfgPlaceId" placeholder="e.g. 8737899170" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+        <div class="form-group">
+          <label class="form-label">Reconnect Cooldown (5-600s)</label>
+          <input type="number" id="cfgCooldown" step="1" min="5" max="600" class="form-input">
         </div>
 
-        <div>
-          <label class="block text-slate-400 text-[11px] mb-1">Disconnect / Reconnect Button Phrases (comma-separated)</label>
-          <input type="text" id="cfgReconnectButtonPhrases" placeholder="Reconnect, Reconectar, Połącz ponownie, Erneut verbinden" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
-          <span class="text-[10px] text-slate-500">Supports accounts with different client languages (e.g. English, Polish, Spanish, German, etc.)</span>
+        <div class="form-group">
+          <label class="form-label">Target Process Names (comma-separated)</label>
+          <input type="text" id="cfgTargetProcesses" placeholder="RobloxPlayerBeta.exe, RobloxPlayer.exe" class="form-input">
         </div>
 
-        <div>
-          <label class="block text-slate-400 text-[11px] mb-1">Target Event Keywords (e.g. turkey hunt, pumpkin tycoon)</label>
-          <input type="text" id="cfgEventKeywords" placeholder="turkey hunt" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+        <div class="form-group">
+          <label class="form-label">Disconnect / Reconnect Button Phrases (comma-separated)</label>
+          <input type="text" id="cfgReconnectButtonPhrases" placeholder="Reconnect, Retry, Połącz ponownie, Reconectar" class="form-input">
+          <span class="form-hint">Supports accounts with different client languages (English, Polish, Spanish, German, etc.)</span>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-slate-400 text-[11px] mb-1">Anti-AFK Interval (Minutes)</label>
-            <input type="number" id="cfgAntiAfkMinutes" min="1" max="19" class="w-full px-2.5 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-white font-mono focus:border-cyan-500 outline-none">
+        <div class="form-group">
+          <label class="form-label">Disconnect Dialog Keywords (comma-separated)</label>
+          <input type="text" id="cfgDisconnectKeywords" placeholder="disconnected, error code:, rozłączono, kod błędu:" class="form-input">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Ignore Phrases (comma-separated)</label>
+          <input type="text" id="cfgIgnorePhrases" placeholder="voice chat, voice" class="form-input">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Application Title</label>
+          <input type="text" id="cfgAppTitle" placeholder="Roblox Watcher" class="form-input">
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">Anti-AFK Interval (1-19 min)</label>
+            <input type="number" id="cfgAntiAfkMinutes" min="1" max="19" class="form-input">
           </div>
-          <div class="flex items-center pt-5">
-            <label class="flex items-center gap-2 cursor-pointer text-slate-300">
-              <input type="checkbox" id="cfgAntiAfkEnabled" class="accent-cyan-500 rounded">
+          <div class="form-group" style="display:flex;align-items:center;padding-top:14px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px">
+              <input type="checkbox" id="cfgAntiAfkEnabled">
               <span>Enable Anti-AFK Jumps</span>
             </label>
           </div>
         </div>
 
-        <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
-          <button type="button" id="cancelSettingsBtn" class="px-3 py-1.5 rounded-lg bg-dark-950 border border-slate-800 text-slate-300 hover:bg-slate-800 transition">Cancel</button>
-          <button type="submit" class="px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-dark-950 font-bold transition">Save Settings</button>
+        <div class="modal-actions">
+          <button type="button" id="cancelSettingsBtn" class="btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
         </div>
       </form>
     </div>
   </div>
 
-  <script>
-    let isRunning = false;
-
-    // Send IPC Message to Rust backend via window.ipc
-    function sendNative(msg) {
-      if (window.ipc && window.ipc.postMessage) {
-        window.ipc.postMessage(JSON.stringify(msg));
-      } else {
-        console.log("Mock IPC Send:", msg);
-      }
-    }
-
-    // Master Controls
-    const toggleMasterBtn = document.getElementById('toggleMasterBtn');
-    const toggleMasterText = document.getElementById('toggleMasterText');
-    const pulseDot = document.getElementById('pulseDot');
-    const pulsePing = document.getElementById('pulsePing');
-    const pulseLabel = document.getElementById('pulseLabel');
-    const logsConsole = document.getElementById('logsConsole');
-
-    toggleMasterBtn.addEventListener('click', () => {
-      sendNative({ action: isRunning ? 'stop' : 'start' });
-    });
-
-    document.getElementById('rescanBtn').addEventListener('click', () => {
-      sendNative({ action: 'rescan' });
-    });
-
-    document.getElementById('testJumpBtn').addEventListener('click', () => {
-      sendNative({ action: 'testJump' });
-    });
-
-    document.getElementById('clearLogsBtn').addEventListener('click', () => {
-      logsConsole.innerHTML = '<div class="text-slate-500">// Console cleared</div>';
-      sendNative({ action: 'clearLogs' });
-    });
-
-    // Settings Modal
-    let currentConfig = {};
-    const settingsModal = document.getElementById('settingsModal');
-    document.getElementById('openSettingsBtn').addEventListener('click', () => {
-      sendNative({ action: 'getConfig' });
-      settingsModal.classList.remove('hidden');
-    });
-    document.getElementById('closeSettingsBtn').addEventListener('click', () => settingsModal.classList.add('hidden'));
-    document.getElementById('cancelSettingsBtn').addEventListener('click', () => settingsModal.classList.add('hidden'));
-
-    document.getElementById('settingsForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const rawPhrases = document.getElementById('cfgReconnectButtonPhrases').value;
-      const buttonPhrases = rawPhrases.split(',').map(s => s.trim()).filter(Boolean);
-
-      const updated = {
-        ...currentConfig,
-        checkIntervalSeconds: parseFloat(document.getElementById('cfgInterval').value) || 5.0,
-        reconnectCooldownSeconds: parseFloat(document.getElementById('cfgCooldown').value) || 30.0,
-        placeId: document.getElementById('cfgPlaceId').value.trim() || null,
-        reconnectButtonPhrases: buttonPhrases.length > 0 ? buttonPhrases : ['Reconnect'],
-        eventTargetKeywords: document.getElementById('cfgEventKeywords').value.split(',').map(s => s.trim()).filter(Boolean),
-        antiAfkEnabled: document.getElementById('cfgAntiAfkEnabled').checked,
-        antiAfkIntervalSeconds: (parseInt(document.getElementById('cfgAntiAfkMinutes').value) || 10) * 60.0
-      };
-      sendNative({ action: 'saveConfig', config: updated });
-      settingsModal.classList.add('hidden');
-    });
-
-    // Rust Callback: Populate Settings
-    window.populateConfig = function(cfg) {
-      currentConfig = cfg;
-      document.getElementById('cfgInterval').value = cfg.checkIntervalSeconds ?? 5.0;
-      document.getElementById('cfgCooldown').value = cfg.reconnectCooldownSeconds ?? 30.0;
-      document.getElementById('cfgPlaceId').value = cfg.placeId ?? '';
-      const buttonPhrases = cfg.reconnectButtonPhrases || (cfg.reconnectButtonText ? [cfg.reconnectButtonText] : ['Reconnect']);
-      document.getElementById('cfgReconnectButtonPhrases').value = Array.isArray(buttonPhrases) ? buttonPhrases.join(', ') : buttonPhrases;
-      document.getElementById('cfgEventKeywords').value = (cfg.eventTargetKeywords ?? ['turkey hunt']).join(', ');
-      document.getElementById('cfgAntiAfkEnabled').checked = cfg.antiAfkEnabled ?? true;
-      document.getElementById('cfgAntiAfkMinutes').value = Math.round((cfg.antiAfkIntervalSeconds ?? 600) / 60);
-    };
-
-    // Rust Callback: Update Live Telemetry & CCTV Grid
-    window.updateUIState = function(data) {
-      isRunning = data.running;
-
-      // Update Header
-      if (isRunning) {
-        toggleMasterBtn.className = 'flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition shadow-lg bg-rose-500 hover:bg-rose-400 text-white font-mono shadow-rose-500/20';
-        toggleMasterBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-white"></span><span>Stop All</span>';
-        pulsePing.classList.remove('hidden');
-        pulseDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-cyan-400 shadow-[0_0_8px_#38bdf8]';
-        pulseLabel.innerText = 'Monitoring';
-        pulseLabel.className = 'text-cyan-400 font-bold text-xs';
-      } else {
-        toggleMasterBtn.className = 'flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-xs transition shadow-lg bg-cyan-500 hover:bg-cyan-400 text-dark-950 font-mono shadow-cyan-500/20';
-        toggleMasterBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-dark-950"></span><span>Start All</span>';
-        pulsePing.classList.add('hidden');
-        pulseDot.className = 'relative inline-flex rounded-full h-2 w-2 bg-slate-600';
-        pulseLabel.innerText = 'Idle';
-        pulseLabel.className = 'text-slate-400 font-medium text-xs';
-      }
-
-      document.getElementById('activeWinsCount').innerText = data.instances ? data.instances.length : 0;
-      document.getElementById('queueStatusLabel').innerText = data.queueStatus || 'Idle';
-      if (data.eventKeyword) document.getElementById('footerTargetLabel').innerText = data.eventKeyword;
-      if (data.nextAfkCountdown) document.getElementById('footerAfkTimer').innerText = data.nextAfkCountdown;
-
-      // Render CCTV Grid
-      const grid = document.getElementById('cctvGrid');
-      if (data.instances && data.instances.length > 0) {
-        grid.innerHTML = data.instances.map((inst, idx) => {
-          let statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500 text-slate-950">HEALTHY</span>`;
-          let borderColor = "border-slate-800 hover:border-cyan-500/50";
-          if (inst.status === "DISCONNECTED" || inst.status.includes("ERROR")) {
-            statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500 text-white animate-pulse">${inst.status}</span>`;
-            borderColor = "border-rose-500/80 shadow-[0_0_8px_rgba(244,63,94,0.3)]";
-          } else if (inst.status === "RECONNECTING" || inst.status === "NAVIGATING") {
-            statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-400 text-slate-950">${inst.status}</span>`;
-            borderColor = "border-amber-500/70";
-          }
-
-          const screenshotSrc = inst.screenshotBase64 
-            ? `data:image/jpeg;base64,${inst.screenshotBase64}`
-            : null;
-
-          return `
-            <div class="relative rounded-xl overflow-hidden bg-dark-850 border ${borderColor} flex flex-col justify-between transition-all group shadow-sm">
-              <!-- Thumbnail Frame -->
-              <div class="relative w-full h-24 bg-dark-950 flex items-center justify-center overflow-hidden">
-                ${screenshotSrc ? `
-                  <img src="${screenshotSrc}" alt="Roblox #${idx + 1}" class="w-full h-full object-cover">
-                ` : `
-                  <div class="text-slate-600 font-mono text-[10px] flex flex-col items-center gap-1">
-                    <span>🎮</span>
-                    <span>No Frame</span>
-                  </div>
-                `}
-
-                <!-- Top Header: ID & Status -->
-                <div class="absolute top-1 left-1 right-1 flex items-center justify-between pointer-events-none">
-                  <span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-xs text-white font-mono text-[9px] font-bold">#${idx + 1} (${inst.pid})</span>
-                  ${statusBadge}
-                </div>
-
-                <!-- Bottom Overlay: Place ID -->
-                <div class="absolute bottom-1 left-1 right-1 flex items-center justify-between text-[8.5px] font-mono text-slate-300 pointer-events-none">
-                  <span class="px-1 rounded bg-black/60">${inst.placeId || 'PS99'}</span>
-                  <span class="px-1 rounded bg-cyan-950/80 text-cyan-300">${inst.eventStatus || 'Traced ✓'}</span>
-                </div>
-              </div>
-
-              <!-- Bottom Stats Bar -->
-              <div class="px-2 py-1 bg-dark-900 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
-                <span class="text-slate-400">AFK: <strong class="text-cyan-400">${inst.afkCountdown || '--'}</strong></span>
-                <span class="text-slate-400">Restarts: <strong class="text-slate-200">${inst.restarts || 0}</strong></span>
-              </div>
-            </div>
-          `;
-        }).join('');
-      } else {
-        grid.innerHTML = `
-          <div class="col-span-full h-44 border border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-500 gap-1.5">
-            <span class="text-2xl">🎮</span>
-            <span class="font-mono text-xs">No active RobloxPlayerBeta.exe windows detected</span>
-            <span class="text-[10px] text-slate-600">Launch Roblox and click 'Scan'</span>
-          </div>
-        `;
-      }
-
-      // Render Logs
-      if (data.logs && data.logs.length > 0) {
-        logsConsole.innerHTML = data.logs.map(l => {
-          let color = 'text-slate-300';
-          const lower = l.toLowerCase();
-          if (lower.includes('error') || lower.includes('disconnect') || lower.includes('alert')) {
-            color = 'text-rose-400 font-bold';
-          } else if (lower.includes('anti-afk') || lower.includes('jump')) {
-            color = 'text-emerald-400 font-semibold';
-          } else if (lower.includes('reconnect') || lower.includes('relaunch')) {
-            color = 'text-amber-300 font-semibold';
-          } else if (lower.includes('ocr') || lower.includes('event')) {
-            color = 'text-cyan-300';
-          }
-          return `<div class="${color}">${escapeHtml(l)}</div>`;
-        }).join('');
-        logsConsole.scrollTop = logsConsole.scrollHeight;
-      }
-    };
-
-    function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-  </script>
+  <script>/* __LOCAL_JS__ */</script>
 </body>
 </html>

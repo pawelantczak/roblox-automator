@@ -1,0 +1,1319 @@
+pub mod classifier;
+pub mod scheduler;
+pub mod tracer;
+
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+use crate::capture::ScreenCapture;
+use crate::engine::classifier::Classifier;
+use crate::engine::scheduler::InstanceTracker;
+use crate::engine::tracer::IconTracer;
+use crate::input::InputAutomation;
+use crate::models::{
+    BoundedLogQueue, Config, EngineMetrics, FailureReason, InstanceCard, InstanceId,
+    InstanceState, LogLevel, UIStateSnapshot, UiCommand, UiEvent,
+};
+use crate::ocr::OcrProvider;
+use crate::power::PowerService;
+use crate::storage::StorageService;
+use crate::window::{RobloxWindowInfo, WindowDiscovery};
+
+pub trait UiEventSink: Send + Sync {
+    fn emit(&self, event: UiEvent);
+}
+
+#[derive(Clone)]
+pub struct EngineHandle {
+    cmd_tx: SyncSender<UiCommand>,
+}
+
+impl EngineHandle {
+    pub fn send(&self, cmd: UiCommand) -> Result<(), String> {
+        self.cmd_tx
+            .try_send(cmd)
+            .map_err(|e| format!("Engine command queue full or closed: {}", e))
+    }
+}
+
+pub struct EngineController {
+    handle: EngineHandle,
+    shutdown: Arc<AtomicBool>,
+    worker_handle: Option<JoinHandle<()>>,
+}
+
+impl EngineController {
+    pub fn start(
+        initial_config: Config,
+        window_svc: Arc<dyn WindowDiscovery>,
+        capture_svc: Arc<dyn ScreenCapture>,
+        ocr_svc: Arc<dyn OcrProvider>,
+        input_svc: Arc<dyn InputAutomation>,
+        ui_sink: Arc<dyn UiEventSink>,
+    ) -> Self {
+        let (cmd_tx, cmd_rx) = mpsc::sync_channel::<UiCommand>(32);
+        let is_running = Arc::new(AtomicBool::new(false));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let worker_running = Arc::clone(&is_running);
+        let worker_shutdown = Arc::clone(&shutdown);
+
+        let worker_handle = thread::Builder::new()
+            .name("engine-worker".to_string())
+            .spawn(move || {
+                let mut worker = EngineWorker::new(
+                    initial_config,
+                    window_svc,
+                    capture_svc,
+                    ocr_svc,
+                    input_svc,
+                    ui_sink,
+                    worker_running,
+                    worker_shutdown,
+                    cmd_rx,
+                );
+                worker.run();
+            })
+            .expect("failed to spawn engine-worker thread");
+
+        Self {
+            handle: EngineHandle { cmd_tx },
+            shutdown,
+            worker_handle: Some(worker_handle),
+        }
+    }
+
+    pub fn handle(&self) -> EngineHandle {
+        self.handle.clone()
+    }
+
+    pub fn shutdown(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
+        }
+        PowerService::disable_sleep_prevention();
+    }
+}
+
+impl Drop for EngineController {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+struct EngineWorker {
+    config: Config,
+    window_svc: Arc<dyn WindowDiscovery>,
+    capture_svc: Arc<dyn ScreenCapture>,
+    ocr_svc: Arc<dyn OcrProvider>,
+    input_svc: Arc<dyn InputAutomation>,
+    ui_sink: Arc<dyn UiEventSink>,
+    is_running_flag: Arc<AtomicBool>,
+    shutdown_flag: Arc<AtomicBool>,
+    cmd_rx: Receiver<UiCommand>,
+    trackers: HashMap<InstanceId, InstanceTracker>,
+    ordered_ids: Vec<InstanceId>,
+    logs: BoundedLogQueue,
+    metrics: EngineMetrics,
+    global_afk_deadline: Option<Instant>,
+    next_scan_deadline: Option<Instant>,
+    session_started_at: Option<Instant>,
+    ui_dirty: bool,
+}
+
+impl EngineWorker {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        config: Config,
+        window_svc: Arc<dyn WindowDiscovery>,
+        capture_svc: Arc<dyn ScreenCapture>,
+        ocr_svc: Arc<dyn OcrProvider>,
+        input_svc: Arc<dyn InputAutomation>,
+        ui_sink: Arc<dyn UiEventSink>,
+        is_running_flag: Arc<AtomicBool>,
+        shutdown_flag: Arc<AtomicBool>,
+        cmd_rx: Receiver<UiCommand>,
+    ) -> Self {
+        #[cfg(not(test))]
+        let mut logs = BoundedLogQueue::new_with_file(
+            200,
+            std::path::PathBuf::from("roblox-watcher.jsonl"),
+        );
+        #[cfg(test)]
+        let mut logs = BoundedLogQueue::new(200);
+        logs.push(
+            LogLevel::Info,
+            None,
+            "Initialized Roblox Watcher worker engine.",
+        );
+        Self {
+            config,
+            window_svc,
+            capture_svc,
+            ocr_svc,
+            input_svc,
+            ui_sink,
+            is_running_flag,
+            shutdown_flag,
+            cmd_rx,
+            trackers: HashMap::new(),
+            ordered_ids: Vec::new(),
+            logs,
+            metrics: EngineMetrics::default(),
+            global_afk_deadline: None,
+            next_scan_deadline: None,
+            session_started_at: None,
+            ui_dirty: true,
+        }
+    }
+
+    fn run(&mut self) {
+        let now = Instant::now();
+        // Perform initial passive discovery and thumbnail capture on startup so UI shows previews immediately.
+        let initial_windows = self.discover_and_sync_windows(now, false);
+        self.capture_initial_thumbnails(&initial_windows);
+        self.emit_snapshot(now);
+
+        let mut next_idle_discovery_deadline = now + Duration::from_secs(3);
+        let mut next_ui_deadline = now + Duration::from_millis(self.config.ui_refresh_interval_ms);
+
+        while !self.shutdown_flag.load(Ordering::Relaxed) {
+            self.drain_commands();
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let now = Instant::now();
+            let running = self.is_running_flag.load(Ordering::SeqCst);
+
+            if running {
+                let scan_due = self
+                    .next_scan_deadline
+                    .map(|d| now >= d)
+                    .unwrap_or(true);
+                if scan_due {
+                    self.run_monitoring_cycle(now);
+                    self.next_scan_deadline = Some(
+                        Instant::now()
+                            + Duration::from_secs_f64(self.config.check_interval_seconds),
+                    );
+                    self.ui_dirty = true;
+                }
+            } else if now >= next_idle_discovery_deadline {
+                // While stopped, skip OCR/automation completely; only keep window list & initial thumbnails fresh.
+                let windows = self.discover_and_sync_windows(now, false);
+                self.capture_initial_thumbnails(&windows);
+                next_idle_discovery_deadline = Instant::now() + Duration::from_secs(3);
+            }
+
+            if now >= next_ui_deadline {
+                if self.ui_dirty || running {
+                    self.emit_snapshot(now);
+                    self.ui_dirty = false;
+                }
+                next_ui_deadline =
+                    Instant::now() + Duration::from_millis(self.config.ui_refresh_interval_ms);
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        if self.is_running_flag.swap(false, Ordering::SeqCst) {
+            PowerService::disable_sleep_prevention();
+        }
+    }
+
+    fn drain_commands(&mut self) {
+        loop {
+            match self.cmd_rx.try_recv() {
+                Ok(cmd) => self.handle_command(cmd),
+                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+            }
+        }
+    }
+
+    fn handle_command(&mut self, cmd: UiCommand) {
+        let now = Instant::now();
+        match cmd {
+            UiCommand::StartWatcher => {
+                if !self.is_running_flag.swap(true, Ordering::SeqCst) {
+                    PowerService::enable_sleep_prevention();
+                    let afk_interval = Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
+                    self.global_afk_deadline = if self.config.anti_afk_enabled {
+                        Some(now + afk_interval)
+                    } else {
+                        None
+                    };
+                    self.session_started_at = Some(now);
+                    self.logs.push(
+                        LogLevel::Action,
+                        None,
+                        "Watcher started. Windows sleep prevention active.",
+                    );
+                    self.discover_and_sync_windows(now, true);
+                    self.run_monitoring_cycle(now);
+                    self.next_scan_deadline = Some(
+                        Instant::now()
+                            + Duration::from_secs_f64(self.config.check_interval_seconds),
+                    );
+                    self.ui_dirty = true;
+                    self.emit_snapshot(now);
+                }
+            }
+            UiCommand::StopWatcher => {
+                if self.is_running_flag.swap(false, Ordering::SeqCst) {
+                    PowerService::disable_sleep_prevention();
+                    self.global_afk_deadline = None;
+                    self.next_scan_deadline = None;
+                    self.session_started_at = None;
+                    let standby = self.config.ui_strings.status_standby.clone();
+                    for tracker in self.trackers.values_mut() {
+                        tracker.enter_idle(now, &standby);
+                    }
+                    self.logs.push(
+                        LogLevel::Action,
+                        None,
+                        "Watcher stopped. Anti-AFK timer halted and sleep prevention released.",
+                    );
+                    self.ui_dirty = true;
+                    self.emit_snapshot(now);
+                }
+            }
+            UiCommand::TriggerTestJump => {
+                let windows = self.window_svc.discover_windows(
+                    &self.config.target_process_names,
+                    &self.config.fallback_window_title,
+                );
+                self.logs.push(
+                    LogLevel::Action,
+                    None,
+                    format!(
+                        "Triggering Anti-AFK focus jumps across {} windows...",
+                        windows.len()
+                    ),
+                );
+                for win in windows {
+                    match self.input_svc.anti_afk_jump(win.hwnd) {
+                        Ok(()) => {
+                            self.metrics.anti_afk_jumps += 1;
+                        }
+                        Err(reason) => {
+                            self.metrics.input_failures += 1;
+                            self.logs.push(
+                                LogLevel::Error,
+                                Some(win.instance_id),
+                                format!("Test jump failed: {}", reason),
+                            );
+                        }
+                    }
+                }
+                if self.is_running_flag.load(Ordering::SeqCst) && self.config.anti_afk_enabled {
+                    self.global_afk_deadline = Some(
+                        Instant::now()
+                            + Duration::from_secs_f64(self.config.anti_afk_interval_seconds),
+                    );
+                }
+                self.ui_dirty = true;
+                self.emit_snapshot(Instant::now());
+            }
+            UiCommand::ClearLogs => {
+                self.logs.clear();
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::GetConfig => {
+                self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
+            }
+            UiCommand::SaveConfig { mut config } => {
+                if let Err(err) = config.validate() {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                if let Err(err) = StorageService::save_config(&config) {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                if self.config != config {
+                    self.logs.push(
+                        LogLevel::Info,
+                        None,
+                        format!(
+                            "Configuration updated (scan={}s, ui={}ms, cooldown={}s, afk={}s).",
+                            config.check_interval_seconds,
+                            config.ui_refresh_interval_ms,
+                            config.reconnect_cooldown_seconds,
+                            config.anti_afk_interval_seconds
+                        ),
+                    );
+                    self.config = config.clone();
+                    if self.is_running_flag.load(Ordering::SeqCst) {
+                        if self.config.anti_afk_enabled {
+                            let new_interval =
+                                Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
+                            let capped = self
+                                .global_afk_deadline
+                                .map(|d| d.min(now + new_interval))
+                                .unwrap_or(now + new_interval);
+                            self.global_afk_deadline = Some(capped);
+                        } else {
+                            self.global_afk_deadline = None;
+                        }
+                    }
+                }
+                self.ui_sink.emit(UiEvent::ConfigSaved(config));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::SetAntiAfkInterval { minutes } => {
+                let mut updated = self.config.clone();
+                updated.anti_afk_interval_seconds = (minutes as f64) * 60.0;
+                if let Err(err) = updated.validate() {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                if let Err(err) = StorageService::save_config(&updated) {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                self.config = updated.clone();
+                if self.is_running_flag.load(Ordering::SeqCst) && self.config.anti_afk_enabled {
+                    let new_interval =
+                        Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
+                    let capped = self
+                        .global_afk_deadline
+                        .map(|d| d.min(now + new_interval))
+                        .unwrap_or(now + new_interval);
+                    self.global_afk_deadline = Some(capped);
+                }
+                self.logs.push(
+                    LogLevel::Info,
+                    None,
+                    format!("Anti-AFK interval updated to {} min.", minutes),
+                );
+                self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::SetScanInterval { seconds } => {
+                let mut updated = self.config.clone();
+                updated.check_interval_seconds = seconds as f64;
+                if let Err(err) = updated.validate() {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                if let Err(err) = StorageService::save_config(&updated) {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                self.config = updated.clone();
+                if self.is_running_flag.load(Ordering::SeqCst) {
+                    let new_interval = Duration::from_secs_f64(self.config.check_interval_seconds);
+                    let capped = self
+                        .next_scan_deadline
+                        .map(|d| d.min(now + new_interval))
+                        .unwrap_or(now + new_interval);
+                    self.next_scan_deadline = Some(capped);
+                }
+                self.logs.push(
+                    LogLevel::Info,
+                    None,
+                    format!("Scan interval updated to {}s.", seconds),
+                );
+                self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::SetEventTracking { enabled, keywords } => {
+                let mut updated = self.config.clone();
+                updated.auto_teleport_to_event = enabled;
+                updated.event_target_keywords = keywords;
+                if let Err(err) = updated.validate() {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                if let Err(err) = StorageService::save_config(&updated) {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                self.config = updated.clone();
+                self.logs.push(
+                    LogLevel::Info,
+                    None,
+                    format!(
+                        "Event tracking {} (keywords: {:?}).",
+                        if enabled { "enabled" } else { "disabled" },
+                        updated.event_target_keywords
+                    ),
+                );
+                self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::ExportLogsJsonl => {
+                let content = self.logs.export_jsonl();
+                self.ui_sink.emit(UiEvent::LogsJsonlExported {
+                    filename: "roblox-watcher-logs.jsonl".to_string(),
+                    content,
+                });
+            }
+        }
+    }
+
+    fn discover_and_sync_windows(&mut self, now: Instant, running: bool) -> Vec<RobloxWindowInfo> {
+        let windows = self.window_svc.discover_windows(
+            &self.config.target_process_names,
+            &self.config.fallback_window_title,
+        );
+        let active_ids: HashSet<InstanceId> = windows.iter().map(|w| w.instance_id).collect();
+
+        // Remove closed windows
+        let prev_len = self.trackers.len();
+        self.trackers.retain(|id, _| active_ids.contains(id));
+        if self.trackers.len() != prev_len {
+            self.ui_dirty = true;
+        }
+
+        self.ordered_ids.clear();
+        let afk_interval = Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
+        let standby = &self.config.ui_strings.status_standby;
+
+        for (idx, win) in windows.iter().enumerate() {
+            let win_num = idx + 1;
+            self.ordered_ids.push(win.instance_id);
+            let tracker = self.trackers.entry(win.instance_id).or_insert_with(|| {
+                self.ui_dirty = true;
+                self.logs.push(
+                    LogLevel::Info,
+                    Some(win.instance_id),
+                    format!("Discovered window #{} (PID {})", win_num, win.pid),
+                );
+                let mut t = InstanceTracker::new(win.instance_id, win.pid, win.title.clone(), now);
+                if running {
+                    t.ensure_afk_deadline(now, self.config.anti_afk_enabled, afk_interval);
+                } else {
+                    t.enter_idle(now, standby);
+                }
+                t
+            });
+
+            if tracker.title != win.title {
+                tracker.title = win.title.clone();
+                self.ui_dirty = true;
+            }
+
+            if running {
+                tracker.ensure_afk_deadline(now, self.config.anti_afk_enabled, afk_interval);
+            } else {
+                tracker.enter_idle(now, standby);
+            }
+        }
+
+        windows
+    }
+
+    /// Captures a one-time thumbnail for any newly discovered window that has no cached preview yet.
+    fn capture_initial_thumbnails(&mut self, windows: &[RobloxWindowInfo]) {
+        for win in windows {
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            let needs_thumb = self
+                .trackers
+                .get(&win.instance_id)
+                .map(|t| t.cached_thumbnail.is_none())
+                .unwrap_or(false);
+            if !needs_thumb {
+                continue;
+            }
+            if let Ok(frame) = self.capture_svc.capture_window(win.hwnd) {
+                let thumb = self.capture_svc.encode_thumbnail_base64(
+                    &frame,
+                    self.config.thumbnail_max_width,
+                    self.config.thumbnail_max_height,
+                    self.config.thumbnail_jpeg_quality,
+                );
+                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                    tracker.cached_thumbnail = thumb;
+                    self.ui_dirty = true;
+                }
+            }
+        }
+    }
+
+    fn run_monitoring_cycle(&mut self, now: Instant) {
+        let windows = self.discover_and_sync_windows(now, true);
+        let ocr_timeout = Duration::from_millis(self.config.ocr_timeout_ms);
+        let afk_interval = Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
+        let cooldown = Duration::from_secs_f64(self.config.reconnect_cooldown_seconds);
+
+        for (idx, win) in windows.into_iter().enumerate() {
+            if self.shutdown_flag.load(Ordering::Relaxed) {
+                break;
+            }
+            let win_num = idx + 1;
+
+            let frame = match self.capture_svc.capture_window(win.hwnd) {
+                Ok(f) => {
+                    self.metrics.captures += 1;
+                    f
+                }
+                Err(err) => {
+                    self.metrics.capture_failures += 1;
+                    if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                        tracker.transition_to(
+                            InstanceState::Error,
+                            Some(FailureReason::CaptureFailed(err.clone())),
+                            now,
+                        );
+                    }
+                    self.logs.push(
+                        LogLevel::Warn,
+                        Some(win.instance_id),
+                        format!("Capture failed on window #{}: {}", win_num, err),
+                    );
+                    continue;
+                }
+            };
+
+            let frame_unchanged = self
+                .trackers
+                .get(&win.instance_id)
+                .and_then(|t| t.last_frame_hash)
+                .map(|h| h == frame.frame_hash)
+                .unwrap_or(false);
+
+            // Encode thumbnail only if frame changed or not yet cached
+            let need_thumb = !frame_unchanged
+                || self
+                    .trackers
+                    .get(&win.instance_id)
+                    .and_then(|t| t.cached_thumbnail.as_ref())
+                    .is_none();
+
+            if need_thumb {
+                let thumb = self.capture_svc.encode_thumbnail_base64(
+                    &frame,
+                    self.config.thumbnail_max_width,
+                    self.config.thumbnail_max_height,
+                    self.config.thumbnail_jpeg_quality,
+                );
+                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                    tracker.cached_thumbnail = thumb;
+                    tracker.last_frame_hash = Some(frame.frame_hash);
+                }
+            }
+
+            // Use cached OCR if frame hash is identical and OCR already succeeded
+            let cached_ocr = if frame_unchanged {
+                self.trackers
+                    .get(&win.instance_id)
+                    .and_then(|t| t.cached_ocr.clone())
+            } else {
+                None
+            };
+
+            let detected_items = if let Some(cached) = cached_ocr {
+                self.metrics.ocr_skipped_unchanged += 1;
+                cached
+            } else {
+                self.logs.push(
+                    LogLevel::Info,
+                    Some(win.instance_id),
+                    format!("Scanning window #{} (PID {})...", win_num, win.pid),
+                );
+                match self.run_ocr_for_instance(win.instance_id, &frame, ocr_timeout, now) {
+                    Some(items) => items,
+                    None => continue,
+                }
+            };
+
+            if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                tracker.cached_ocr = Some(detected_items.clone());
+            }
+
+            // 1. Check disconnect keywords & localized reconnect button
+            let disconnect_match = detected_items
+                .iter()
+                .find(|item| {
+                    Classifier::is_fatal_disconnect(
+                        &item.text,
+                        &self.config.disconnect_keywords,
+                        &self.config.ignore_phrases,
+                    )
+                })
+                .map(|item| item.text.clone());
+
+            let reconnect_btn = Classifier::find_reconnect_button(
+                &detected_items,
+                &self.config.reconnect_button_phrases,
+                &self.config.ignore_phrases,
+            );
+
+            let is_disconnected = disconnect_match.is_some() || reconnect_btn.is_some();
+
+            if is_disconnected {
+                let matched_label = disconnect_match.unwrap_or_else(|| {
+                    format!(
+                        "Button '{}'",
+                        reconnect_btn.as_ref().map(|b| b.text.as_str()).unwrap_or("")
+                    )
+                });
+                self.logs.push(
+                    LogLevel::Warn,
+                    Some(win.instance_id),
+                    format!(
+                        "Disconnect detected on window #{} (PID {}): {}",
+                        win_num, win.pid, matched_label
+                    ),
+                );
+
+                let cooldown_active = self
+                    .trackers
+                    .get(&win.instance_id)
+                    .map(|t| t.is_cooldown_active(now))
+                    .unwrap_or(false);
+
+                if cooldown_active {
+                    self.logs.push(
+                        LogLevel::Info,
+                        Some(win.instance_id),
+                        format!("Reconnect cooldown active on window #{}", win_num),
+                    );
+                    if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                        tracker.transition_to(
+                            InstanceState::Disconnected,
+                            Some(FailureReason::ReconnectCooldownActive),
+                            now,
+                        );
+                    }
+                    continue;
+                }
+
+                if let Some(btn) = reconnect_btn {
+                    if self.config.auto_click_reconnect {
+                        if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                            tracker.transition_to(InstanceState::Reconnecting, None, now);
+                        }
+                        self.metrics.reconnect_attempts += 1;
+
+                        let click_pt = btn.click_point();
+                        let screen_x =
+                            win.window_left + (click_pt.x * (win.window_width as f32)) as i32;
+                        let screen_y =
+                            win.window_top + (click_pt.y * (win.window_height as f32)) as i32;
+
+                        self.logs.push(
+                            LogLevel::Action,
+                            Some(win.instance_id),
+                            format!(
+                                "Clicking reconnect button '{}' on window #{} at ({}, {})",
+                                btn.text, win_num, screen_x, screen_y
+                            ),
+                        );
+
+                        match self.input_svc.click_at(win.hwnd, screen_x, screen_y) {
+                            Ok(()) => {
+                                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                                    tracker.restarts += 1;
+                                    tracker.start_reconnect_cooldown(Instant::now(), cooldown);
+                                    tracker.cached_ocr = None;
+                                }
+                            }
+                            Err(reason) => {
+                                self.metrics.reconnect_failures += 1;
+                                self.metrics.input_failures += 1;
+                                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                                    tracker.transition_to(
+                                        InstanceState::Error,
+                                        Some(reason.clone()),
+                                        Instant::now(),
+                                    );
+                                    tracker.start_reconnect_cooldown(Instant::now(), cooldown);
+                                }
+                                self.logs.push(
+                                    LogLevel::Error,
+                                    Some(win.instance_id),
+                                    format!("Reconnect click failed: {}", reason),
+                                );
+                            }
+                        }
+                    } else if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                        tracker.transition_to(InstanceState::Disconnected, None, now);
+                    }
+                } else if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                    tracker.transition_to(
+                        InstanceState::Disconnected,
+                        Some(FailureReason::ReconnectButtonNotFound),
+                        now,
+                    );
+                }
+                continue;
+            }
+
+            // 2. Healthy state & optional event navigation
+            let mut event_status = self.config.ui_strings.status_healthy.clone();
+            if self.config.auto_teleport_to_event && !self.config.event_target_keywords.is_empty() {
+                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                    tracker.transition_to(InstanceState::Navigating, None, now);
+                }
+                self.logs.push(
+                    LogLevel::Info,
+                    Some(win.instance_id),
+                    format!(
+                        "Looking for event text on window #{} (PID {})...",
+                        win_num, win.pid
+                    ),
+                );
+                let sidebar_items = match self.ocr_svc.scan_left_sidebar(&frame, 0.35, ocr_timeout) {
+                    Ok(items) => items,
+                    Err(err) => {
+                        self.logs.push(
+                            LogLevel::Warn,
+                            Some(win.instance_id),
+                            format!("Sidebar OCR failed on window #{}: {}", win_num, err),
+                        );
+                        Vec::new()
+                    }
+                };
+
+                let target = Classifier::find_event_target(
+                    &sidebar_items,
+                    &self.config.event_target_keywords,
+                    0.40,
+                )
+                .or_else(|| {
+                    Classifier::find_event_target(
+                        &detected_items,
+                        &self.config.event_target_keywords,
+                        0.40,
+                    )
+                })
+                .or_else(|| {
+                    if let Ok(hc_items) =
+                        self.ocr_svc
+                            .scan_left_sidebar_high_contrast(&frame, 0.35, ocr_timeout)
+                    {
+                        Classifier::find_event_target(
+                            &hc_items,
+                            &self.config.event_target_keywords,
+                            0.40,
+                        )
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(target) = target {
+                    let matched_text = target.text.clone();
+                    let refined = IconTracer::refine_target(target, &frame);
+                    let click_pt = refined.click_point();
+                    let crop_b64 = self.capture_svc.encode_point_crop_base64(
+                        &frame,
+                        &click_pt,
+                        40,
+                        self.config.thumbnail_jpeg_quality,
+                    );
+                    if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                        tracker.event_crop_base64 = crop_b64.clone();
+                    }
+                    event_status = self.config.ui_strings.status_traced.clone();
+                    self.logs.push_with_icon(
+                        LogLevel::Action,
+                        Some(win.instance_id),
+                        format!(
+                            "Event text found on window #{} (PID {}): '{}'",
+                            win_num, win.pid, matched_text
+                        ),
+                        crop_b64,
+                    );
+
+                    let event_cd_active = self
+                        .trackers
+                        .get(&win.instance_id)
+                        .map(|t| t.is_event_cooldown_active(now))
+                        .unwrap_or(false);
+
+                    if event_cd_active {
+                        self.logs.push(
+                            LogLevel::Info,
+                            Some(win.instance_id),
+                            format!("Event click cooldown active on window #{}", win_num),
+                        );
+                    } else {
+                        let click_pt = refined.click_point();
+                        let screen_x =
+                            win.window_left + (click_pt.x * (win.window_width as f32)) as i32;
+                        let screen_y =
+                            win.window_top + (click_pt.y * (win.window_height as f32)) as i32;
+
+                        self.logs.push(
+                            LogLevel::Action,
+                            Some(win.instance_id),
+                            format!(
+                                "Clicking event icon '{}' on window #{} at ({}, {})",
+                                matched_text, win_num, screen_x, screen_y
+                            ),
+                        );
+
+                        match self.input_svc.click_at(win.hwnd, screen_x, screen_y) {
+                            Ok(()) => {
+                                if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                                    tracker.start_event_cooldown(Instant::now(), cooldown);
+                                    tracker.cached_ocr = None;
+                                }
+                            }
+                            Err(reason) => {
+                                self.metrics.input_failures += 1;
+                                self.logs.push(
+                                    LogLevel::Error,
+                                    Some(win.instance_id),
+                                    format!(
+                                        "Event click failed on window #{}: {}",
+                                        win_num, reason
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                        tracker.event_crop_base64 = None;
+                    }
+                    self.logs.push(
+                        LogLevel::Info,
+                        Some(win.instance_id),
+                        format!(
+                            "Event text not found on window #{} (sidebar OCR saw {} lines)",
+                            win_num,
+                            sidebar_items.len()
+                        ),
+                    );
+                }
+            }
+
+            if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                if !self.config.auto_teleport_to_event || self.config.event_target_keywords.is_empty() {
+                    tracker.event_crop_base64 = None;
+                }
+                tracker.event_status = event_status;
+                tracker.transition_to(InstanceState::Healthy, None, now);
+            }
+        }
+
+        // 3. Global Anti-AFK deadline check across all active windows
+        let global_afk_due = self.config.anti_afk_enabled
+            && self
+                .global_afk_deadline
+                .map(|d| now >= d)
+                .unwrap_or(false);
+
+        if global_afk_due {
+            let active_windows = self.window_svc.discover_windows(
+                &self.config.target_process_names,
+                &self.config.fallback_window_title,
+            );
+            self.logs.push(
+                LogLevel::Action,
+                None,
+                format!(
+                    "Triggering global Anti-AFK jump across {} windows.",
+                    active_windows.len()
+                ),
+            );
+            for (idx, win) in active_windows.into_iter().enumerate() {
+                if self.shutdown_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let win_num = idx + 1;
+                match self.input_svc.anti_afk_jump(win.hwnd) {
+                    Ok(()) => {
+                        self.metrics.anti_afk_jumps += 1;
+                        self.logs.push(
+                            LogLevel::Action,
+                            Some(win.instance_id),
+                            format!("Anti-AFK jump completed on window #{} (PID {})", win_num, win.pid),
+                        );
+                    }
+                    Err(reason) => {
+                        self.metrics.input_failures += 1;
+                        if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+                            tracker.transition_to(
+                                InstanceState::Error,
+                                Some(reason.clone()),
+                                Instant::now(),
+                            );
+                        }
+                        self.logs.push(
+                            LogLevel::Error,
+                            Some(win.instance_id),
+                            format!("Anti-AFK jump failed on window #{}: {}", win_num, reason),
+                        );
+                    }
+                }
+            }
+            self.global_afk_deadline = Some(Instant::now() + afk_interval);
+        }
+    }
+
+    fn run_ocr_for_instance(
+        &mut self,
+        instance_id: InstanceId,
+        frame: &crate::models::CapturedFrame,
+        timeout: Duration,
+        now: Instant,
+    ) -> Option<Vec<crate::models::DetectedText>> {
+        self.metrics.ocr_runs += 1;
+        match self.ocr_svc.scan_frame(frame, timeout) {
+            Ok(items) => Some(items),
+            Err(err) => {
+                self.metrics.ocr_failures += 1;
+                let reason = if err.to_lowercase().contains("timed out") {
+                    FailureReason::OcrTimeout
+                } else {
+                    FailureReason::OcrFailed(err.clone())
+                };
+                if let Some(tracker) = self.trackers.get_mut(&instance_id) {
+                    tracker.ocr_failures += 1;
+                    tracker.transition_to(InstanceState::Error, Some(reason), now);
+                }
+                self.logs.push(
+                    LogLevel::Error,
+                    Some(instance_id),
+                    format!("OCR failed: {}", err),
+                );
+                None
+            }
+        }
+    }
+
+    fn emit_snapshot(&self, now: Instant) {
+        let running = self.is_running_flag.load(Ordering::SeqCst);
+        let mut cards = Vec::with_capacity(self.ordered_ids.len());
+
+        let global_afk_secs = if running && self.config.anti_afk_enabled {
+            self.global_afk_deadline
+                .map(|d| d.saturating_duration_since(now).as_secs())
+        } else {
+            None
+        };
+
+        let next_scan_secs = if running {
+            self.next_scan_deadline
+                .map(|d| d.saturating_duration_since(now).as_secs())
+        } else {
+            None
+        };
+
+        let session_uptime_secs = if running {
+            self.session_started_at
+                .map(|s| now.saturating_duration_since(s).as_secs())
+        } else {
+            None
+        };
+
+        let mut total_restarts = 0u32;
+
+        for id in &self.ordered_ids {
+            if let Some(t) = self.trackers.get(id) {
+                total_restarts = total_restarts.saturating_add(t.restarts);
+                cards.push(InstanceCard {
+                    instance_id: t.instance_id,
+                    pid: t.pid,
+                    title: t.title.clone(),
+                    state: t.state,
+                    failure_reason: t.failure_reason.as_ref().map(|r| r.to_string()),
+                    afk_remaining_secs: global_afk_secs,
+                    cooldown_remaining_secs: t.cooldown_remaining_secs(now),
+                    event_status: t.event_status.clone(),
+                    restarts: t.restarts,
+                    ocr_failures: t.ocr_failures,
+                    screenshot_base64: t.cached_thumbnail.clone(),
+                    event_crop_base64: t.event_crop_base64.clone(),
+                });
+            }
+        }
+
+        let event_keyword = self
+            .config
+            .event_target_keywords
+            .first()
+            .cloned()
+            .unwrap_or_else(|| self.config.ui_strings.status_no_event.clone());
+
+        let snapshot = UIStateSnapshot {
+            running,
+            instances: cards,
+            queue_status: if running {
+                self.config.ui_strings.status_active.clone()
+            } else {
+                self.config.ui_strings.status_idle.clone()
+            },
+            event_keyword,
+            auto_teleport_to_event: self.config.auto_teleport_to_event,
+            event_target_keywords: self.config.event_target_keywords.clone(),
+            scan_interval_seconds: self.config.check_interval_seconds.round() as u32,
+            next_scan_remaining_secs: next_scan_secs,
+            session_uptime_secs,
+            total_restarts,
+            anti_afk_enabled: self.config.anti_afk_enabled,
+            anti_afk_interval_minutes: (self.config.anti_afk_interval_seconds / 60.0).round() as u32,
+            next_afk_remaining_secs: global_afk_secs,
+            logs: self.logs.snapshot(),
+            metrics: self.metrics.clone(),
+        };
+
+        self.ui_sink.emit(UiEvent::TelemetrySnapshot(snapshot));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{CapturedFrame, DetectedText, NormalizedPoint, NormalizedRect};
+    use std::sync::Mutex;
+    use windows::Win32::Foundation::HWND;
+
+    struct MockWindowSvc {
+        windows: Vec<RobloxWindowInfo>,
+    }
+    impl WindowDiscovery for MockWindowSvc {
+        fn discover_windows(
+            &self,
+            _process_names: &[String],
+            _fallback_title: &str,
+        ) -> Vec<RobloxWindowInfo> {
+            self.windows.clone()
+        }
+        fn is_window_alive(&self, _hwnd: HWND) -> bool {
+            true
+        }
+        fn activate_window(&self, _hwnd: HWND) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct MockCaptureSvc {
+        frame: CapturedFrame,
+    }
+    impl ScreenCapture for MockCaptureSvc {
+        fn capture_window(&self, _hwnd: HWND) -> Result<CapturedFrame, String> {
+            Ok(self.frame.clone())
+        }
+        fn encode_thumbnail_base64(
+            &self,
+            _frame: &CapturedFrame,
+            _max_w: u32,
+            _max_h: u32,
+            _quality: u8,
+        ) -> Option<String> {
+            Some("mock_b64".to_string())
+        }
+        fn encode_point_crop_base64(
+            &self,
+            _frame: &CapturedFrame,
+            _center: &NormalizedPoint,
+            _radius_px: u32,
+            _quality: u8,
+        ) -> Option<String> {
+            Some("mock_crop_b64".to_string())
+        }
+    }
+
+    struct MockOcrSvc {
+        items: Vec<DetectedText>,
+    }
+    impl OcrProvider for MockOcrSvc {
+        fn scan_frame(
+            &self,
+            _frame: &CapturedFrame,
+            _timeout: Duration,
+        ) -> Result<Vec<DetectedText>, String> {
+            Ok(self.items.clone())
+        }
+        fn scan_left_sidebar(
+            &self,
+            _frame: &CapturedFrame,
+            _sidebar_ratio: f32,
+            _timeout: Duration,
+        ) -> Result<Vec<DetectedText>, String> {
+            Ok(Vec::new())
+        }
+        fn scan_left_sidebar_high_contrast(
+            &self,
+            _frame: &CapturedFrame,
+            _sidebar_ratio: f32,
+            _timeout: Duration,
+        ) -> Result<Vec<DetectedText>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct MockInputSvc {
+        clicks: Mutex<Vec<(i32, i32)>>,
+    }
+    impl InputAutomation for MockInputSvc {
+        fn click_at(&self, _hwnd: HWND, screen_x: i32, screen_y: i32) -> Result<(), FailureReason> {
+            self.clicks.lock().unwrap().push((screen_x, screen_y));
+            Ok(())
+        }
+        fn anti_afk_jump(&self, _hwnd: HWND) -> Result<(), FailureReason> {
+            Ok(())
+        }
+    }
+
+    struct MockUiSink {
+        events: Mutex<Vec<UiEvent>>,
+    }
+    impl UiEventSink for MockUiSink {
+        fn emit(&self, event: UiEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    #[test]
+    fn test_worker_detects_disconnect_and_clicks_reconnect_with_mock_services() {
+        let win = RobloxWindowInfo {
+            instance_id: 101,
+            hwnd: HWND(std::ptr::null_mut()),
+            pid: 9999,
+            title: "Roblox".to_string(),
+            window_left: 0,
+            window_top: 0,
+            window_width: 800,
+            window_height: 600,
+        };
+
+        let frame = CapturedFrame::new(4, 4, vec![255; 64]);
+        let items = vec![DetectedText {
+            text: "Połącz ponownie".to_string(),
+            bounding_box: NormalizedRect::new(0.4, 0.5, 0.6, 0.6),
+            target_point: Some(NormalizedPoint { x: 0.5, y: 0.55 }),
+            whole_icon_box: None,
+            word_boxes: vec![],
+        }];
+
+        let input_svc = Arc::new(MockInputSvc {
+            clicks: Mutex::new(Vec::new()),
+        });
+        let ui_sink = Arc::new(MockUiSink {
+            events: Mutex::new(Vec::new()),
+        });
+
+        let (_tx, rx) = mpsc::sync_channel(4);
+        let mut worker = EngineWorker::new(
+            Config::default(),
+            Arc::new(MockWindowSvc { windows: vec![win] }),
+            Arc::new(MockCaptureSvc { frame }),
+            Arc::new(MockOcrSvc { items }),
+            input_svc.clone(),
+            ui_sink.clone(),
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicBool::new(false)),
+            rx,
+        );
+
+        worker.run_monitoring_cycle(Instant::now());
+
+        let clicks = input_svc.clicks.lock().unwrap();
+        assert_eq!(clicks.len(), 1);
+        assert_eq!(clicks[0], (400, 330));
+        assert_eq!(worker.metrics.captures, 1);
+        assert_eq!(worker.metrics.ocr_runs, 1);
+        assert_eq!(worker.metrics.reconnect_attempts, 1);
+        assert_eq!(worker.trackers.get(&101).unwrap().restarts, 1);
+        assert_eq!(
+            worker.trackers.get(&101).unwrap().state,
+            InstanceState::Reconnecting
+        );
+    }
+
+    #[test]
+    #[ignore = "Multi-stage live diagnostic test against open Roblox windows (run on interactive desktop)"]
+    fn test_multistage_live_event_pipeline() {
+        use crate::capture::Win32CaptureService;
+        use crate::ocr::WindowsMediaOcrService;
+        use crate::window::Win32WindowService;
+
+        let win_svc = Win32WindowService;
+        let cap_svc = Win32CaptureService;
+        let ocr_svc = WindowsMediaOcrService;
+        let config = Config::default();
+
+        // Stage 1: Window discovery
+        let windows = win_svc.discover_windows(
+            &config.target_process_names,
+            &config.fallback_window_title,
+        );
+        println!("[Stage 1] Discovered {} Roblox windows", windows.len());
+        assert!(!windows.is_empty(), "No live Roblox windows found");
+
+        for (i, win) in windows.iter().enumerate() {
+            let num = i + 1;
+            // Stage 2: Frame capture
+            let t0 = Instant::now();
+            let frame = cap_svc.capture_window(win.hwnd).expect("capture failed");
+            println!(
+                "[Stage 2] Window #{} (PID {}) captured {}x{} in {:?}",
+                num,
+                win.pid,
+                frame.width,
+                frame.height,
+                t0.elapsed()
+            );
+
+            // Stage 3: Full-frame OCR
+            let t1 = Instant::now();
+            let full_items = ocr_svc
+                .scan_frame(&frame, Duration::from_secs(5))
+                .expect("full OCR failed");
+            println!(
+                "[Stage 3] Full-frame OCR ({:?}): {} lines",
+                t1.elapsed(),
+                full_items.len()
+            );
+
+            // Stage 4: Standard sidebar OCR + High-Contrast sidebar OCR
+            let t2 = Instant::now();
+            let sb_items = ocr_svc
+                .scan_left_sidebar(&frame, 0.35, Duration::from_secs(5))
+                .expect("sidebar OCR failed");
+            println!(
+                "[Stage 4a] Sidebar OCR ({:?}): {} lines -> {:?}",
+                t2.elapsed(),
+                sb_items.len(),
+                sb_items.iter().map(|x| &x.text).collect::<Vec<_>>()
+            );
+
+            let t3 = Instant::now();
+            let hc_items = ocr_svc
+                .scan_left_sidebar_high_contrast(&frame, 0.35, Duration::from_secs(5))
+                .expect("high-contrast OCR failed");
+            println!(
+                "[Stage 4b] High-Contrast Sidebar OCR ({:?}): {} lines -> {:?}",
+                t3.elapsed(),
+                hc_items.len(),
+                hc_items.iter().map(|x| &x.text).collect::<Vec<_>>()
+            );
+
+            // Stage 5: Classifier + IconTracer
+            let kw = if config.event_target_keywords.is_empty() {
+                vec!["turkey hunt".to_string()]
+            } else {
+                config.event_target_keywords.clone()
+            };
+            let matched = Classifier::find_event_target(&sb_items, &kw, 0.40)
+                .or_else(|| Classifier::find_event_target(&full_items, &kw, 0.40))
+                .or_else(|| Classifier::find_event_target(&hc_items, &kw, 0.40));
+            println!(
+                "[Stage 5] Window #{} match: {:?}",
+                num,
+                matched.as_ref().map(|m| &m.text)
+            );
+        }
+    }
+}

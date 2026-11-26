@@ -171,7 +171,7 @@ impl Classifier {
                 }
                 let top = cluster.last().unwrap();
                 let bottom = sorted[j];
-                let aligned_x = (top.bounding_box.mid_x() - bottom.bounding_box.mid_x()).abs() < 0.06;
+                let aligned_x = (top.bounding_box.mid_x() - bottom.bounding_box.mid_x()).abs() < 0.10;
                 let vertical_gap = bottom.bounding_box.min_y - top.bounding_box.max_y;
 
                 if aligned_x && vertical_gap >= -0.02 && vertical_gap < 0.06 {
@@ -197,11 +197,17 @@ impl Classifier {
                 let cluster_words: Vec<String> = cluster
                     .iter()
                     .flat_map(|item| -> Vec<String> {
-                        if !item.word_boxes.is_empty() {
-                            item.word_boxes.iter().map(|w| w.word.clone()).collect()
+                        let raw_words: Vec<&str> = if !item.word_boxes.is_empty() {
+                            item.word_boxes.iter().map(|w| w.word.as_str()).collect()
                         } else {
-                            item.text.split_whitespace().map(|s| s.to_string()).collect()
-                        }
+                            item.text.split_whitespace().collect()
+                        };
+                        raw_words
+                            .into_iter()
+                            .flat_map(|w| w.split(|c: char| !c.is_alphanumeric()))
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string())
+                            .collect()
                     })
                     .collect();
 
@@ -210,12 +216,93 @@ impl Classifier {
                     .filter(|tok| cluster_words.iter().any(|w| Self::word_matches(w, tok)))
                     .count();
 
-                if matched_count == tokens.len() {
-                    // Match found! Calculate icon centroid directly above the text label
-                    let min_x = cluster.iter().map(|i| i.bounding_box.min_x).fold(1.0f32, f32::min);
-                    let max_x = cluster.iter().map(|i| i.bounding_box.max_x).fold(0.0f32, f32::max);
-                    let min_y = cluster.iter().map(|i| i.bounding_box.min_y).fold(1.0f32, f32::min);
-                    let max_y = cluster.iter().map(|i| i.bounding_box.max_y).fold(0.0f32, f32::max);
+                // Also match concatenated alphanumeric text (exact or fuzzy sliding window)
+                let joined_cluster: String = cluster_words
+                    .iter()
+                    .flat_map(|w| w.chars())
+                    .filter(|c| c.is_alphanumeric())
+                    .flat_map(|c| c.to_lowercase())
+                    .collect();
+                let joined_kw: String = tokens
+                    .iter()
+                    .flat_map(|t| t.chars())
+                    .filter(|c| c.is_alphanumeric())
+                    .flat_map(|c| c.to_lowercase())
+                    .collect();
+                let joined_match = if !joined_kw.is_empty() {
+                    if joined_cluster.contains(&joined_kw) {
+                        true
+                    } else if joined_kw.len() >= 6 && joined_cluster.chars().count() >= joined_kw.len() {
+                        let kw_chars: Vec<char> = joined_kw.chars().collect();
+                        let cl_chars: Vec<char> = joined_cluster.chars().collect();
+                        let win_len = kw_chars.len();
+                        cl_chars.windows(win_len).any(|w| {
+                            let s: String = w.iter().collect();
+                            Self::edit_distance(&s, &joined_kw) <= 2
+                        })
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if matched_count == tokens.len() || joined_match {
+                    // Use bounding boxes of the matched keyword words only (ignoring trailing numbers/adjacent columns)
+                    let mut matched_boxes: Vec<&NormalizedRect> = Vec::new();
+                    for item in cluster {
+                        if !item.word_boxes.is_empty() {
+                            for wb in &item.word_boxes {
+                                let parts: Vec<&str> = wb
+                                    .word
+                                    .split(|c: char| !c.is_alphanumeric())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                                let word_alnum: String = wb
+                                    .word
+                                    .chars()
+                                    .filter(|c| c.is_alphanumeric())
+                                    .flat_map(|c| c.to_lowercase())
+                                    .collect();
+                                let matches_part = parts
+                                    .iter()
+                                    .any(|p| tokens.iter().any(|tok| Self::word_matches(p, tok)));
+                                let matches_joined = !joined_kw.is_empty()
+                                    && word_alnum.len() >= 4
+                                    && (word_alnum.contains(&joined_kw)
+                                        || joined_kw.contains(&word_alnum)
+                                        || (joined_kw.len() >= 6
+                                            && word_alnum.chars().count() >= joined_kw.len()
+                                            && word_alnum
+                                                .chars()
+                                                .collect::<Vec<_>>()
+                                                .windows(joined_kw.chars().count())
+                                                .any(|w| {
+                                                    let s: String = w.iter().collect();
+                                                    Self::edit_distance(&s, &joined_kw) <= 2
+                                                })));
+                                if matches_part || matches_joined {
+                                    matched_boxes.push(&wb.bounding_box);
+                                }
+                            }
+                        }
+                    }
+
+                    let (min_x, max_x, min_y, max_y) = if !matched_boxes.is_empty() {
+                        (
+                            matched_boxes.iter().map(|b| b.min_x).fold(1.0f32, f32::min),
+                            matched_boxes.iter().map(|b| b.max_x).fold(0.0f32, f32::max),
+                            matched_boxes.iter().map(|b| b.min_y).fold(1.0f32, f32::min),
+                            matched_boxes.iter().map(|b| b.max_y).fold(0.0f32, f32::max),
+                        )
+                    } else {
+                        (
+                            cluster.iter().map(|i| i.bounding_box.min_x).fold(1.0f32, f32::min),
+                            cluster.iter().map(|i| i.bounding_box.max_x).fold(0.0f32, f32::max),
+                            cluster.iter().map(|i| i.bounding_box.min_y).fold(1.0f32, f32::min),
+                            cluster.iter().map(|i| i.bounding_box.max_y).fold(0.0f32, f32::max),
+                        )
+                    };
 
                     let label_height = (max_y - min_y).max(0.01);
                     let is_multi_line = cluster.len() > 1;
@@ -333,5 +420,20 @@ mod tests {
 
         let found = Classifier::find_reconnect_button(&items, &phrases, &ignores);
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn test_find_event_target_handles_merged_and_fuzzy_words() {
+        let items = vec![make_item("TurkeyHunt")];
+        let keywords = vec!["turkey hunt".to_string()];
+        let found = Classifier::find_event_target(&items, &keywords, 0.40);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().text, "TurkeyHunt");
+
+        let apostrophe = vec![make_item("Turkey'Hunt 22,519")];
+        assert!(Classifier::find_event_target(&apostrophe, &keywords, 0.40).is_some());
+
+        let typo_merged = vec![make_item("TurkoyHunt 22,519")];
+        assert!(Classifier::find_event_target(&typo_merged, &keywords, 0.40).is_some());
     }
 }

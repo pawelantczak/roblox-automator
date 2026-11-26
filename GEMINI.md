@@ -1,6 +1,6 @@
-# Roblox Automator (Windows)
+# Roblox Watcher (Windows)
 
-Roblox Automator is a high-performance native Windows automation and monitoring suite designed to maintain 24/7 uptime for Roblox games (such as *Pet Simulator 99*) across multiple concurrent accounts. It detects disconnections via on-device Windows Media OCR, automatically reconnects or relaunches, navigates back to active event areas, and prevents 20-minute idle kicks using stealth Anti-AFK character jumps.
+Roblox Watcher is a high-performance native Windows automation and monitoring suite designed to maintain 24/7 uptime for Roblox games (such as *Pet Simulator 99*) across multiple concurrent accounts. It detects disconnections via on-device Windows Media OCR, automatically reconnects or relaunches, navigates back to active event areas, and prevents 20-minute idle kicks using stealth Anti-AFK character jumps.
 
 ---
 
@@ -10,21 +10,19 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
   - `VERSION`: Root plain-text file holding the semver string (e.g. `0.1.0`).
   - Synchronized into `Cargo.toml` (`version = "..."`), binary metadata, and release archives.
 - **Components**:
-  - `src/models.rs`: `Config` (with multi-language `reconnect_button_phrases`), `InstanceCard`, `UIStateBroadcast`, `IPCAction`, and `DetectedText` entities.
-  - `src/window.rs`: Win32 process discovery (`RobloxPlayerBeta.exe`), window handle (`HWND`) enumeration, and unminimize/activation helpers.
-  - `src/capture.rs`: Silent background window capture via Win32 GDI `PrintWindow` (`PW_RENDERFULLCONTENT`) and downscaled JPEG base64 thumbnail encoding.
-  - `src/ocr.rs`: On-device Windows Media OCR (`windows::Media::Ocr::OcrEngine`) and super-sampled left sidebar recognition.
-  - `src/classifier.rs`: Disconnect keyword filtering, multi-language button phrase matching, non-fatal toast exclusion, and Levenshtein fuzzy word matching.
-  - `src/tracer.rs`: Computer vision cartoon border (`UIStroke`) contour tracing and geometric centroid calculation.
-  - `src/input.rs`: Atomic serialized input queue (`INPUT_LOCK`), hardware scancode spacebar jump (`0x0039`), and stealth Anti-AFK engine.
-  - `src/engine.rs`: Multi-instance background monitoring loop and state coordinator.
+  - `src/models/`: Versioned `Config` (schema v2 with `target_process_names`, `fallback_window_title`, `ui_strings`, `disconnect_keywords`, `reconnect_button_phrases`, `ignore_phrases`, `event_target_keywords`, and validation/migration), typed `UiCommand` / `UiEvent` IPC contracts, `InstanceState` / `EngineMetrics` / `BoundedLogQueue` state models, and `CapturedFrame` / `DetectedText` vision entities.
+  - `src/window/`: `WindowDiscovery` trait and `Win32WindowService` for `RobloxPlayerBeta.exe` discovery and stable `InstanceId` tracking (keeping raw `HWND`s out of JS).
+  - `src/capture/`: `ScreenCapture` trait and `Win32CaptureService` for silent `PrintWindow` / `BitBlt` capture, sampled frame-difference hashing, and quality-bounded JPEG thumbnail encoding.
+  - `src/ocr/`: `OcrProvider` trait and `WindowsMediaOcrService` for timeout-guarded Windows Media OCR (`OcrEngine`) and super-sampled left sidebar recognition.
+  - `src/input/`: `InputAutomation` trait and `Win32InputService` with `INPUT_LOCK` serialization, RAII `ForegroundAndCursorGuard` restoration, hardware scancode spacebar jumps (`0x0039`), and explicit `FailureReason` reporting.
+  - `src/engine/`: Dedicated worker thread (`EngineController` / `EngineWorker`), data-driven `InstanceTracker` state machine & deadlines (`scheduler.rs`), `Classifier` (`classifier.rs`), and `IconTracer` (`tracer.rs`) with bounded command channels and frame-hash caching.
+  - `src/ui/`: Main-thread UI layer (`run_app`) and hardened `WebViewManager` (`webview.rs`) with local bundled assets, CSP, disabled remote navigation/release devtools, and WebView2 runtime check.
   - `src/power.rs`: Windows system power execution state (`SetThreadExecutionState`) display sleep and auto-lock prevention.
-  - `src/storage.rs`: Deterministic JSON configuration (`config.json`) loading and saving.
-  - `src/tray.rs`: Native Windows notification area system tray icon, dynamic states, and context menu.
-  - `src/main.rs`: Entry point, Tao event loop, Win32 Named Mutex single-instance guard, and WebView2 IPC dispatcher.
-  - `resources/index.html`: Responsive dark-mode CCTV multi-window grid dashboard styled with Tailwind CSS.
+  - `src/storage.rs`: Atomic JSON configuration (`config.json`) writes and versioned schema migration.
+  - `src/main.rs`: Pure startup and composition root (WebView2 runtime check, RAII Win32 Named Mutex guard, config loading, and UI launch).
+  - `resources/`: Locally bundled `index.html`, `styles.css`, and `app.js` with strict Content Security Policy and typed IPC bridging (zero CDN dependencies).
   - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` headers.
-  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-automator.exe` alongside native ZIP archives, extracting release notes, and publishing GitHub Releases.
+  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-watcher.exe` alongside native ZIP archives, extracting release notes, and publishing GitHub Releases.
 
 ---
 
@@ -47,8 +45,7 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
    - Instantly restores previous hardware cursor position and foreground application focus.
 6. **Windows System Guardians**:
    - Prevents screensaver locks and display dimming via `SetThreadExecutionState`.
-   - Restricts execution to a single running instance via Win32 Named Mutex (`Global\RobloxAutomator_Mutex`).
-   - Minimizes to the Windows System Tray on close (`X`), keeping automation active in the background.
+   - Restricts execution to a single running instance via Win32 Named Mutex (`Global\RobloxWatcher_Mutex`).
 
 ---
 
@@ -61,14 +58,14 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
    - Do **NOT** create, move, delete, or push Git tags (never run `git tag`, `git tag -f`, `git push origin <tag>`, or `git push --tags`).
    - Tagging is strictly reserved for the human user.
 2. **ALWAYS UPDATE CHANGELOG.md**:
-   - Every feature, fix, or breaking change must be documented in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-automator/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+   - Every feature, fix, or breaking change must be documented in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
    - **End-User Friendly Only**: Write changelog entries strictly from the end-user's perspective focusing on functional aspects, observable behavior, and user benefits. Never include low-level technical jargon, internal code identifiers, framework names, internal file names, or implementation details.
 3. **ALWAYS UPDATE GEMINI.md**:
-   - Any architectural change, new script, configuration field, or rule modification must be recorded in this file ([GEMINI.md](file:///C:/Users/pawel/Sources/roblox-automator/GEMINI.md)).
+   - Any architectural change, new script, configuration field, or rule modification must be recorded in this file ([GEMINI.md](file:///C:/Users/pawel/Sources/roblox-watcher/GEMINI.md)).
 4. **NO AUTOMATIC VERSION BUMPING**:
    - **NEVER** bump the version automatically.
-   - Always keep new additions and fixes under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-automator/CHANGELOG.md) and wait for explicit instruction from the user before bumping `VERSION` or running `./bump.ps1` / `./bump.sh`.
-   - When the user explicitly requests a version bump, determine the semver increment strictly from the release entries in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-automator/CHANGELOG.md):
+   - Always keep new additions and fixes under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) and wait for explicit instruction from the user before bumping `VERSION` or running `./bump.ps1` / `./bump.sh`.
+   - When the user explicitly requests a version bump, determine the semver increment strictly from the release entries in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md):
      - If there are **only fixes** (`### Fixed`), bump **patch** (`x.y.Z`).
      - If there are any **new features or capabilities** (`### Added`), bump **minor** (`x.Y.0`).
      - If there are **breaking architectural changes**, bump **major** (`X.0.0`).
@@ -78,3 +75,6 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
 6. **NO AUTOMATIC COMMITS**:
    - Do **NOT** run `git commit` automatically.
    - Always propose a copyable `git commit` command with a descriptive commit message considering all uncommitted changes for the user to review and run.
+7. **ALWAYS BUILD AFTER CODE CHANGES**:
+   - Automatically run `cargo test` and `cargo build --release` after every code change before concluding.
+   - If `target/release/roblox-watcher.exe` is locked by a running instance (`os error 5`), report it clearly and run `cargo check --release` to verify the release build.
