@@ -49,7 +49,7 @@ Set-Content -Path $VersionFile -Value $NewVersion
 $CargoToml = Join-Path $ScriptDir "Cargo.toml"
 if (Test-Path $CargoToml) {
     $CargoContent = Get-Content $CargoToml -Raw
-    $CargoContent = $CargoContent -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$NewVersion`""
+    $CargoContent = ([regex]'(?m)^version\s*=\s*"[^"]+"').Replace($CargoContent, "version = `"$NewVersion`"", 1)
     Set-Content -Path $CargoToml -Value $CargoContent
     Write-Host "==> Updated Cargo.toml to version $NewVersion" -ForegroundColor Green
 }
@@ -62,11 +62,12 @@ foreach ($DocName in @("CHANGELOG.md", "RELEASE_NOTES.md")) {
         $DocContent = Get-Content $DocFile -Raw
         if ($DocContent -notmatch "## \[$NewVersion\]") {
             $Pattern = '(?s)## \[Unreleased\]\s*\n(.*?)(?=\n---\s*\n## \[|\n## \[|\Z)'
-            if ($DocContent -match $Pattern) {
-                $Body = $Matches[1].Trim()
+            $Match = ([regex]$Pattern).Match($DocContent)
+            if ($Match.Success) {
+                $Body = $Match.Groups[1].Value.Trim()
                 if ($Body) {
                     $Replacement = "## [Unreleased]`n`n---`n`n## [$NewVersion] - $Today`n`n$Body`n"
-                    $DocContent = $DocContent.Substring(0, $Matches.Index) + $Replacement + $DocContent.Substring($Matches.Index + $Matches.Length)
+                    $DocContent = $DocContent.Substring(0, $Match.Index) + $Replacement + $DocContent.Substring($Match.Index + $Match.Length)
                     Set-Content -Path $DocFile -Value $DocContent
                     Write-Host "==> Updated $DocName with release header for v$NewVersion" -ForegroundColor Green
                 }

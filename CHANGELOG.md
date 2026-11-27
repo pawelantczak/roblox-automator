@@ -1,15 +1,16 @@
 # Changelog
 
-Technical changelog for **Roblox Watcher** maintainers and contributors.  
+Technical changelog for **Roblox Automator** maintainers and contributors.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).  
 End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTES.md).
-
-### Removed
-- Removed `Application Title` (`#cfgAppTitle`) input from the Global Settings modal (`resources/index.html`, `resources/app.js`).
 
 ---
 
 ## [Unreleased]
+
+---
+
+## [0.2.0] - 2026-11-27
 
 ### Added
 - Added right-aligned Discord invite pill (`https://discord.gg/ce5yGvTf9`, `.footer-discord`) to `.app-footer` in `resources/index.html` & `resources/styles.css`, whitelisted for external browser launch in `src/ui/webview.rs`.
@@ -68,3 +69,4 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 - `Classifier::find_event_target` & `IconTracer` (`src/engine/classifier.rs`, `src/engine/tracer.rs`, `src/ocr/mod.rs`):
   - Isolated matched keyword `word_boxes`, added bottom-up row-gap isolation in `IconTracer`, capped sidebar upscale at `2200px`, added luminance thresholding (`lum >= 180`) in `scan_left_sidebar_high_contrast`, and added fuzzy sliding-window matching (`edit_distance <= 2`).
 - Coordinate mapping in `src/engine/mod.rs` and `Win32CaptureService` (`src/capture/mod.rs`) for window-relative click dispatch and aspect-ratio preserved thumbnails.
+

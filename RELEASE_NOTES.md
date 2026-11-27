@@ -1,10 +1,27 @@
 # Release Notes
 
-User-facing release notes for **Roblox Watcher**. Each version section is published to GitHub Releases when a release tag is pushed.
+User-facing release notes for **Roblox Automator**. Each version section is published to GitHub Releases when a release tag is pushed.
 
 ---
 
 ## [Unreleased]
+
+---
+
+## [0.2.0] - 2026-11-27
+
+### Added
+- **Macro Recording & Multi-Window Replay**: Record keystrokes, mouse movements, clicks, and scrolling directly in one Roblox window (with a `3… 2… 1` countdown overlay and automatic stop when moving the mouse outside the window), then replay the recorded sequence automatically across every Roblox window after reconnecting or Smart Click.
+- **Uniform Window Sizing**: Automatically resizes active Roblox windows to a consistent `800×600` layout so in-game buttons and macro positions align across every account.
+- **Status Footer & Community Links**: Added a bottom bar displaying the app version badge, a clickable link to `ps99clan.xyz`, and a **Discord** invite button (`https://discord.gg/ce5yGvTf9`).
+- **Versioned Log Exports**: Included the app version in downloaded JSONL log files to make troubleshooting easier.
+
+### Changed
+- **Rebranded to Roblox Automator**: Updated the application name, executable, and simplified full-bleed gear icon.
+- **Redesigned Top Ribbon & Larger Typography**: Streamlined the 5-card ribbon (`Automator` with live uptime timer, `Next Scan`, `Anti-AFK`, `Smart Click`, and `Macro`), increased font sizes across the dashboard for better readability, and highlighted all user-initiated actions in green in the Activity Telemetry console.
+
+### Removed
+- **Application Title Setting**: Removed the redundant Application Title field from Global Settings.
 
 ---
 
@@ -40,3 +57,4 @@ User-facing release notes for **Roblox Watcher**. Each version section is publis
 
 ### Removed
 - **System Tray Integration**: Removed the Windows system tray icon and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
+
