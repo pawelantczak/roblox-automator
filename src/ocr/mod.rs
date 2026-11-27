@@ -230,11 +230,14 @@ impl OcrProvider for WindowsMediaOcrService {
         for pixel in upscaled.pixels_mut() {
             let [r, g, b, _] = pixel.0;
             let lum = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000;
-            if lum >= 180 {
-                // Bright UI text -> crisp black ink
+            let max_c = r.max(g).max(b);
+            let min_c = r.min(g).min(b);
+            let sat = max_c - min_c;
+            if lum >= 205 && sat <= 55 {
+                // Bright, low-saturation white UI text -> crisp black ink
                 pixel.0 = [0, 0, 0, 255];
             } else {
-                // Colorful background -> pure white paper
+                // Colorful or bright-tinted game background -> pure white paper
                 pixel.0 = [255, 255, 255, 255];
             }
         }
@@ -381,6 +384,42 @@ mod tests {
                 .text
                 .to_lowercase()
                 .contains(&expected_button.to_lowercase()));
+        }
+    }
+
+    #[test]
+    fn test_event_ocr_on_uploaded_spawn_screenshots() {
+        let paths = [
+            r"C:\Users\pawel\.gemini\antigravity\brain\f6e91f92-803e-4bb8-88a4-600c11ea779b\.user_uploaded\media_1795820494993_561d9c1b.jpg",
+            r"C:\Users\pawel\.gemini\antigravity\brain\f6e91f92-803e-4bb8-88a4-600c11ea779b\.user_uploaded\media_1795820501900_4528ce94.jpg",
+        ];
+        let keywords = vec!["turkey hunt".to_string()];
+        let ocr = WindowsMediaOcrService;
+        for (idx, p) in paths.iter().enumerate() {
+            if !Path::new(p).exists() {
+                continue;
+            }
+            let img = image::open(p).expect("open").to_rgba8();
+            let frame = CapturedFrame::new(img.width() as i32, img.height() as i32, img.into_raw());
+            let sb = ocr
+                .scan_left_sidebar(&frame, 0.35, Duration::from_secs(5))
+                .unwrap_or_default();
+            let full = ocr.scan_frame(&frame, Duration::from_secs(5)).unwrap_or_default();
+            let hc = ocr
+                .scan_left_sidebar_high_contrast(&frame, 0.35, Duration::from_secs(5))
+                .unwrap_or_default();
+            let target = Classifier::find_event_target(&sb, &keywords, 0.40)
+                .or_else(|| Classifier::find_event_target(&full, &keywords, 0.40))
+                .or_else(|| Classifier::find_event_target(&hc, &keywords, 0.40))
+                .unwrap_or_else(|| panic!("Image {} should match 'turkey hunt'", idx + 1));
+            let refined = crate::engine::tracer::IconTracer::refine_target(target, &frame);
+            let pt = refined.click_point();
+            assert!(
+                pt.x > 0.05 && pt.x < 0.20 && pt.y > 0.55 && pt.y < 0.66,
+                "Image {} refined click {:?} out of expected turkey icon bounds",
+                idx + 1,
+                pt
+            );
         }
     }
 }

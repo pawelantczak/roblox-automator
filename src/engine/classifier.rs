@@ -398,7 +398,7 @@ impl Classifier {
                         )
                     };
 
-                    let label_height = (max_y - min_y).max(0.01);
+                    let label_height = (max_y - min_y).max(0.032);
                     let is_multi_line = cluster.len() > 1;
 
                     // In top-down coordinates, the icon is directly ABOVE the text (lower Y)

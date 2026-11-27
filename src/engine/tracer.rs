@@ -22,9 +22,15 @@ impl IconTracer {
         let text_pixel_h = text_box.height() * img_h;
         let text_mid_x = text_pixel_x + (text_pixel_w * 0.5);
 
-        // Define Region of Interest (ROI) directly above the text label (lower Y in top-down)
-        let roi_w = (text_pixel_w * 1.4).clamp(text_pixel_h * 2.5, text_pixel_h * 4.5);
-        let roi_h = text_pixel_h * 2.8;
+        // Define Region of Interest (ROI) directly above the text label (lower Y in top-down).
+        // Use frame-relative minimums so tight single-line OCR boxes (e.g. 8-9px tall at 800x600)
+        // still cover the full sidebar icon above the caption.
+        let roi_w = (text_pixel_w * 1.4)
+            .max(img_w * 0.08)
+            .clamp(32.0, img_w * 0.25);
+        let roi_h = (text_pixel_h * 3.5)
+            .max(img_h * 0.11)
+            .clamp(36.0, img_h * 0.22);
         let roi_x = (text_mid_x - (roi_w * 0.5)).max(0.0);
         let roi_y = (text_pixel_top_y - roi_h).max(0.0);
         let roi_actual_w = (img_w - roi_x).min(roi_w);

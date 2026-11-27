@@ -8,6 +8,10 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+### Fixed
+- `WindowsMediaOcrService::scan_left_sidebar_high_contrast` (`src/ocr/mod.rs`): added a low-saturation filter (`lum >= 205 && max_rgb - min_rgb <= 55`) so bright colored game backgrounds (such as the light-blue spawn walkway) stay white paper instead of turning black alongside white UI captions.
+- `IconTracer::trace_icon_bounds` & `Classifier::find_event_target` (`src/engine/tracer.rs`, `src/engine/classifier.rs`): added frame-relative minimum ROI dimensions (`roi_w`, `roi_h`) and a minimum `label_height` (`0.032`) fallback so tight single-line OCR text boxes (e.g. `8–9px` tall on `800×600` windows) still trace and click the event icon above the label instead of clicking just above/on the text.
+
 ---
 
 ## [0.4.0] - 2026-11-27
