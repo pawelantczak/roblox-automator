@@ -87,17 +87,14 @@ jobs:
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.version }}"
-          $folderName = "Roblox-Automator-v$ver"
           $zipName = "Roblox-Automator-v$ver.zip"
           $exeSource = if (Test-Path "signed-output/roblox-automator.exe") {
             "signed-output/roblox-automator.exe"
           } else {
             "target/release/roblox-automator.exe"
           }
-          New-Item -ItemType Directory -Force -Path $folderName | Out-Null
-          Copy-Item $exeSource -Destination "$folderName/roblox-automator.exe"
-          Compress-Archive -Path $folderName -DestinationPath $zipName -Force
-          Write-Host "Created archive: $zipName containing $folderName/roblox-automator.exe (source: $exeSource)"
+          Compress-Archive -Path $exeSource -DestinationPath $zipName -Force
+          Write-Host "Created archive: $zipName containing roblox-automator.exe (source: $exeSource)"
 
       - name: Upload Build Artifacts (CI)
         uses: actions/upload-artifact@v4

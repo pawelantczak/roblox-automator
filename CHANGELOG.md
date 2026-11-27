@@ -11,6 +11,9 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 ### Added
 - `.github/workflows/build.yml`: added optional SignPath code-signing pipeline (`signpath/github-action-submit-signing-request@v3`, gated by `refs/tags/v*` and `vars.SIGNPATH_ENABLED == 'true'`) plus `Get-AuthenticodeSignature` verification before packaging `Roblox-Automator-v<ver>.zip`.
 
+### Changed
+- `.github/workflows/build.yml`: packaged `roblox-automator.exe` directly at the root of `Roblox-Automator-v<ver>.zip` instead of nesting it inside a `Roblox-Automator-v<ver>/` subfolder.
+
 ---
 
 ## [0.3.0] - 2026-11-27
