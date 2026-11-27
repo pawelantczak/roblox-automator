@@ -48,16 +48,56 @@ jobs:
       - name: Build Release Binary
         run: cargo build --release
 
+      - name: Upload Unsigned Binary (SignPath)
+        id: upload-unsigned
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: roblox-automator-unsigned-${{ steps.get_version.outputs.version }}
+          path: target/release/roblox-automator.exe
+          retention-days: 1
+
+      - name: Sign Release Binary (SignPath)
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-output
+
+      - name: Verify Code Signature
+        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          $signedExe = "signed-output/roblox-automator.exe"
+          if (-not (Test-Path $signedExe)) {
+            throw "Expected signed binary at $signedExe"
+          }
+          $sig = Get-AuthenticodeSignature -FilePath $signedExe
+          Write-Host "Signature status: $($sig.Status) | Subject: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') {
+            throw "Authenticode signature verification failed: $($sig.StatusMessage)"
+          }
+
       - name: Package Release Archive
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.version }}"
           $folderName = "Roblox-Automator-v$ver"
           $zipName = "Roblox-Automator-v$ver.zip"
+          $exeSource = if (Test-Path "signed-output/roblox-automator.exe") {
+            "signed-output/roblox-automator.exe"
+          } else {
+            "target/release/roblox-automator.exe"
+          }
           New-Item -ItemType Directory -Force -Path $folderName | Out-Null
-          Copy-Item target/release/roblox-automator.exe -Destination "$folderName/roblox-automator.exe"
+          Copy-Item $exeSource -Destination "$folderName/roblox-automator.exe"
           Compress-Archive -Path $folderName -DestinationPath $zipName -Force
-          Write-Host "Created archive: $zipName containing $folderName/roblox-automator.exe"
+          Write-Host "Created archive: $zipName containing $folderName/roblox-automator.exe (source: $exeSource)"
 
       - name: Upload Build Artifacts (CI)
         uses: actions/upload-artifact@v4

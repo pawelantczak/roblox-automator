@@ -23,7 +23,7 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
   - `resources/`: Locally bundled `index.html`, `styles.css`, and `app.js` with strict Content Security Policy and typed IPC bridging (zero CDN dependencies).
   - `README.md` & `docs/images/`: End-user documentation and README screenshots (kept strictly separate from bundled `resources/`).
   - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` and `RELEASE_NOTES.md` headers.
-  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, packaging `Roblox-Automator-v<ver>.zip` (containing `Roblox-Automator-v<ver>/roblox-automator.exe`), extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
+  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, optionally signing `roblox-automator.exe` via SignPath (`signpath/github-action-submit-signing-request@v3` when `SIGNPATH_ENABLED == 'true'` on `v*` tag builds) and verifying Authenticode signatures, packaging `Roblox-Automator-v<ver>.zip` (containing `Roblox-Automator-v<ver>/roblox-automator.exe`), extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
 
 ---
 
