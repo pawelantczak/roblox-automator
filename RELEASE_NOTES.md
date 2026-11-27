@@ -6,11 +6,15 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ## [Unreleased]
 
-### Added
-- **Configuration Snapshots in Exported Logs**: Exported log files now include your active settings at startup and whenever you change a setting (with your private server link redacted), making troubleshooting much easier.
+---
 
-### Fixed
-- **Eliminated False-Positive Disconnect Detections**: Fixed an issue where short in-game text or numbers (such as timers, stats, or UI labels) could mistakenly trigger a disconnect warning and click the screen when accounts were still connected.
+## [0.4.0] - 2026-11-27
+
+### Added
+- **Automated Code Signing Support**: Added support for signing release builds so Windows can verify the publisher automatically.
+
+### Changed
+- **Flattened Release Archive**: Placed the executable directly at the root of the release `.zip` archive so extracting it on Windows does not create an extra nested folder.
 
 ---
 
@@ -73,5 +77,6 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ### Removed
 - **System Tray Integration**: Removed the Windows system tray icon and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
+
 
 
