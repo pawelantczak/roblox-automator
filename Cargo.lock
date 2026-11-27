@@ -1972,7 +1972,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "roblox-watcher"
+name = "roblox-automator"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -4,9 +4,34 @@ Technical changelog for **Roblox Watcher** maintainers and contributors.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).  
 End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
+### Removed
+- Removed `Application Title` (`#cfgAppTitle`) input from the Global Settings modal (`resources/index.html`, `resources/app.js`).
+
 ---
 
 ## [Unreleased]
+
+### Added
+- Added right-aligned Discord invite pill (`https://discord.gg/ce5yGvTf9`, `.footer-discord`) to `.app-footer` in `resources/index.html` & `resources/styles.css`, whitelisted for external browser launch in `src/ui/webview.rs`.
+- `.github/ISSUE_TEMPLATE/bug_report.yml` & `feature_request.yml`: added GitHub Issue Form templates for bug reports and feature requests.
+- `LogEntry.version` (`src/models/state.rs`): included `CARGO_PKG_VERSION` in every JSONL log record.
+- Macro recording, playback & uniform window sizing:
+  - `MacroStep` / `MouseBtn` (`src/models/macro_seq.rs`), `Config` persistence (`macro_enabled`, `macro_replay_on_reconnect`, `macro_replay_on_event`, `uniform_window_size`, `uniform_window_width` = `800`, `uniform_window_height` = `600`, `macro_steps`), `UiCommand` (`StartMacroRecording`, `StopMacroRecording`, `TestMacro`, `ClearMacro`, `SetMacroEnabled`), and `UIStateSnapshot` macro telemetry (`src/models/ipc.rs`, `src/models/state.rs`).
+  - `src/input/recorder.rs`: Win32 `WH_KEYBOARD_LL` + `WH_MOUSE_LL` macro recorder with circular `3..2..1` click-through GDI countdown overlay and `"Move mouse outside window to stop"` hint pill (`WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`), window focusing/cursor centering, normalized client coordinates, move throttling, and auto-stop when cursor leaves the target Roblox window.
+  - `InputAutomation::play_macro` (`src/input/mod.rs`), async `TestMacro` / `StopMacroPlayback` playback (`src/models/ipc.rs`, `src/models/state.rs`, `src/engine/mod.rs`), `WindowDiscovery::resize_window_in_place` (`src/window/mod.rs`), and `EngineWorker` post-reconnect / post-event macro replay triggers (`src/engine/mod.rs`, `src/engine/scheduler.rs`), wired to `resources/app.js` (with `#macroClearBtn` switching to a red stop square `■` during playback).
+- `UIStateSnapshot.app_version` (`src/models/state.rs`, `src/engine/mod.rs` via `CARGO_PKG_VERSION`), `.app-footer` (`resources/index.html`, `resources/styles.css`, `resources/app.js`), and `with_navigation_handler` browser launch for `https://ps99clan.xyz` (`src/ui/webview.rs`).
+
+### Changed
+- Replaced `resources/app_icon.png` (`256×256` PNG) with a simplified, full-bleed **Roblox Automator** icon (bold cyan 8-tooth gear around the tilted Roblox square, no white outer border, sized well within WebView2's `NavigateToString` 2 MB HTML limit).
+- Highlighted all user-initiated UI commands (`SaveConfig`, `SetAntiAfkInterval`, `SetScanInterval`, `SetEventTracking`, `ExportLogsJsonl`, `ClearMacro`, `SetMacroEnabled`) with `LogLevel::Action` in `src/engine/mod.rs`.
+- Renamed application/package from `roblox-watcher` (`Roblox Watcher`) to `roblox-automator` (`Roblox Automator`) across `Cargo.toml`, `src/main.rs` (`Global\RobloxAutomator_Mutex`), `src/models/config.rs`, `src/models/ipc.rs` (`StartAutomator` / `StopAutomator`), `src/engine/mod.rs`, `src/input/recorder.rs`, `resources/`, `README.md`, `GEMINI.md`, and `.github/workflows/build.yml`.
+- Updated `.github/workflows/build.yml` to emit only `Roblox-Automator-v<version>.zip` containing `Roblox-Automator-v<version>/roblox-automator.exe` (unversioned `.exe` filename).
+- Redesigned `.stats-ribbon` (`resources/index.html`, `resources/styles.css`, `resources/app.js`) into `Automator` (displaying live uptime timer in `#pulseLabel` when running, plus window/rejoin counts) and `Next Scan` with muted `2px` top borders, plus 3 tiered integration cards: `Anti-AFK` (`.tier-1`), `Smart Click` (`.tier-2`), and `Macro` (`.tier-3` UI controls `#macroRecordBtn`, `#macroWindowSelect`, green `#macroPlayBtn`, `#macroClearBtn`).
+- Enlarged `.brand-title` (`Roblox Watcher` next to header icon) to `20px`.
+- Increased UI typography scale across `resources/styles.css`, `resources/index.html`, and `resources/app.js` (header, buttons, `.stats-ribbon`, `.card` overlays/footers, `.logs-console`, and settings modal).
+
+### Removed
+- Removed `Application Title` (`#cfgAppTitle`) input from the Global Settings modal (`resources/index.html`, `resources/app.js`).
 
 ---
 

@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Roblox Watcher</title>
+  <title>Roblox Automator</title>
   <style>/* __LOCAL_CSS__ */</style>
 </head>
 <body>
   <div class="app-shell">
     <header class="app-header">
       <div class="brand">
-        <img src="__APP_ICON_DATA_URI__" alt="Roblox Watcher" class="brand-icon-img">
+        <img src="__APP_ICON_DATA_URI__" alt="Roblox Automator" class="brand-icon-img">
         <div class="mono">
-          <div class="brand-title">Roblox <span>Watcher</span></div>
+          <div class="brand-title">Roblox <span>Automator</span></div>
         </div>
       </div>
 
@@ -28,26 +28,15 @@
       <!-- Ribbon of Stat Boxes -->
       <section class="stats-ribbon">
         <div class="stat-box">
-          <div class="stat-label">Watcher Status</div>
+          <div class="stat-label">Automator</div>
           <div class="stat-value-row">
             <div class="stat-main mono">
               <span id="pulseDot" class="pulse-dot"></span>
               <span id="pulseLabel">STOPPED</span>
             </div>
-            <span id="queueStatusLabel" class="stat-sub mono">Idle</span>
           </div>
-        </div>
-
-        <div class="stat-box">
-          <div class="stat-header-row">
-            <span class="stat-label">Session</span>
-            <span class="stat-sub mono"><strong id="activeWinsCount" style="color:#38bdf8">0</strong> <span id="activeWinsUnit">windows</span></span>
-          </div>
-          <div class="stat-value-row">
-            <div class="stat-main mono">
-              <span id="ribbonUptime">--</span>
-            </div>
-            <span id="ribbonTotalRestarts" class="stat-sub mono">0 rejoins</span>
+          <div class="stat-sub mono">
+            <strong id="activeWinsCount" style="color:#38bdf8">0</strong> <span id="activeWinsUnit">windows</span> &middot; <span id="ribbonTotalRestarts">0 rejoins</span>
           </div>
         </div>
 
@@ -65,10 +54,11 @@
               </div>
             </div>
           </div>
+          <div class="stat-sub">Disconnect OCR</div>
         </div>
 
-        <div class="stat-box">
-          <div class="stat-label">Anti-AFK Keep-Alive</div>
+        <div class="stat-box tier-1">
+          <div class="stat-label">Anti-AFK</div>
           <div class="stat-value-row">
             <div class="stat-main mono">
               <span id="ribbonAfkStatus">PAUSED</span>
@@ -81,12 +71,13 @@
               </div>
             </div>
           </div>
+          <div class="stat-sub">Keep-Alive Jump</div>
         </div>
 
-        <div class="stat-box">
+        <div class="stat-box tier-2">
           <div class="stat-header-row">
-            <span class="stat-label">Event Icon Text</span>
-            <label class="ribbon-toggle mono" title="Enable or disable event icon tracking">
+            <span class="stat-label" title="Finds and clicks matching sidebar button">Smart Click</span>
+            <label class="ribbon-toggle mono" title="Enable or disable Smart Click">
               <input type="checkbox" id="ribbonEventEnabled">
               <span id="ribbonEventToggleLabel">OFF</span>
             </label>
@@ -94,6 +85,25 @@
           <div class="stat-value-row">
             <input type="text" id="ribbonEventKeywords" placeholder="e.g. turkey hunt" class="ribbon-input mono">
           </div>
+        </div>
+
+        <div id="macroStatBox" class="stat-box tier-3">
+          <div class="stat-header-row">
+            <span class="stat-label">Macro</span>
+            <label class="ribbon-toggle mono" title="Enable or disable post-recovery macro replay">
+              <input type="checkbox" id="ribbonMacroEnabled">
+              <span id="ribbonMacroToggleLabel">OFF</span>
+            </label>
+          </div>
+          <div class="macro-controls-row">
+            <button type="button" id="macroRecordBtn" class="macro-btn macro-rec-btn mono" title="Record macro in selected window">&#9679; Rec</button>
+            <select id="macroWindowSelect" class="macro-select mono" title="Target Roblox window for recording">
+              <option value="">#1</option>
+            </select>
+            <button type="button" id="macroPlayBtn" class="macro-btn macro-play-btn mono" title="Test macro playback" disabled>&#9654;</button>
+            <button type="button" id="macroClearBtn" class="macro-btn mono" title="Clear recorded macro" disabled>&#10005;</button>
+          </div>
+          <div id="macroSummaryLabel" class="stat-sub mono">No macro</div>
         </div>
       </section>
 
@@ -111,23 +121,38 @@
             <strong style="color:#f1f5f9">Activity Telemetry</strong>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button id="resumeLogsBtn" class="btn btn-resume hidden" style="padding:2px 8px;font-size:10px">Resume Logs</button>
-            <button id="downloadLogsBtn" class="btn" style="padding:2px 8px;font-size:10px">Download</button>
-            <button id="clearLogsBtn" class="btn" style="padding:2px 8px;font-size:10px">Clear Console</button>
+            <button id="resumeLogsBtn" class="btn btn-resume hidden" style="padding:2px 8px;font-size:11.5px">Resume Logs</button>
+            <button id="downloadLogsBtn" class="btn" style="padding:2px 8px;font-size:11.5px">Download</button>
+            <button id="clearLogsBtn" class="btn" style="padding:2px 8px;font-size:11.5px">Clear Console</button>
           </div>
         </div>
         <div id="logsConsole" class="logs-console">
-          <div class="mono" style="color:#64748b">// Waiting for watcher activation...</div>
+          <div class="mono" style="color:#64748b">// Waiting for automator activation...</div>
         </div>
       </section>
     </main>
+
+    <footer class="app-footer mono">
+      <div class="footer-left">
+        <span>Roblox Automator</span>
+        <span id="appVersionBadge" class="version-badge">v0.1.0</span>
+        <span class="footer-dot">&bull;</span>
+        <span>by <a href="https://ps99clan.xyz" class="footer-brand">ps99clan.xyz</a></span>
+      </div>
+      <a href="https://discord.gg/ce5yGvTf9" class="footer-discord" title="Join our Discord server">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+        </svg>
+        <span>Discord</span>
+      </a>
+    </footer>
   </div>
 
   <!-- Settings Modal -->
   <div id="settingsModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <strong class="mono" style="font-size:14px">Global Settings</strong>
+        <strong class="mono" style="font-size:16px">Global Settings</strong>
         <button id="closeSettingsBtn" class="btn" style="padding:2px 8px">✕</button>
       </div>
 
@@ -171,18 +196,13 @@
           <input type="text" id="cfgIgnorePhrases" placeholder="voice chat, voice" class="form-input">
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Application Title</label>
-          <input type="text" id="cfgAppTitle" placeholder="Roblox Watcher" class="form-input">
-        </div>
-
         <div class="form-grid-2">
           <div class="form-group">
             <label class="form-label">Anti-AFK Interval (1-19 min)</label>
             <input type="number" id="cfgAntiAfkMinutes" min="1" max="19" class="form-input">
           </div>
           <div class="form-group" style="display:flex;align-items:center;padding-top:14px">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px">
               <input type="checkbox" id="cfgAntiAfkEnabled">
               <span>Enable Anti-AFK Jumps</span>
             </label>

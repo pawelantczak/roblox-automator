@@ -123,6 +123,8 @@ struct EngineWorker {
     global_afk_deadline: Option<Instant>,
     next_scan_deadline: Option<Instant>,
     session_started_at: Option<Instant>,
+    macro_recorder: Option<crate::input::recorder::MacroRecorderHandle>,
+    macro_player: Option<(Arc<AtomicBool>, thread::JoinHandle<()>)>,
     ui_dirty: bool,
 }
 
@@ -142,14 +144,14 @@ impl EngineWorker {
         #[cfg(not(test))]
         let mut logs = BoundedLogQueue::new_with_file(
             200,
-            std::path::PathBuf::from("roblox-watcher.jsonl"),
+            std::path::PathBuf::from("roblox-automator.jsonl"),
         );
         #[cfg(test)]
         let mut logs = BoundedLogQueue::new(200);
         logs.push(
             LogLevel::Info,
             None,
-            "Initialized Roblox Watcher worker engine.",
+            "Initialized Roblox Automator worker engine.",
         );
         Self {
             config,
@@ -168,6 +170,8 @@ impl EngineWorker {
             global_afk_deadline: None,
             next_scan_deadline: None,
             session_started_at: None,
+            macro_recorder: None,
+            macro_player: None,
             ui_dirty: true,
         }
     }
@@ -190,6 +194,8 @@ impl EngineWorker {
             }
 
             let now = Instant::now();
+            self.poll_macro_recorder(now);
+            self.poll_macro_player(now);
             let running = self.is_running_flag.load(Ordering::SeqCst);
 
             if running {
@@ -245,7 +251,7 @@ impl EngineWorker {
     fn handle_command(&mut self, cmd: UiCommand) {
         let now = Instant::now();
         match cmd {
-            UiCommand::StartWatcher => {
+            UiCommand::StartAutomator => {
                 if !self.is_running_flag.swap(true, Ordering::SeqCst) {
                     PowerService::enable_sleep_prevention();
                     let afk_interval = Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
@@ -258,7 +264,7 @@ impl EngineWorker {
                     self.logs.push(
                         LogLevel::Action,
                         None,
-                        "Watcher started. Windows sleep prevention active.",
+                        "Automator started. Windows sleep prevention active.",
                     );
                     self.discover_and_sync_windows(now, true);
                     self.run_monitoring_cycle(now);
@@ -270,7 +276,7 @@ impl EngineWorker {
                     self.emit_snapshot(now);
                 }
             }
-            UiCommand::StopWatcher => {
+            UiCommand::StopAutomator => {
                 if self.is_running_flag.swap(false, Ordering::SeqCst) {
                     PowerService::disable_sleep_prevention();
                     self.global_afk_deadline = None;
@@ -283,7 +289,7 @@ impl EngineWorker {
                     self.logs.push(
                         LogLevel::Action,
                         None,
-                        "Watcher stopped. Anti-AFK timer halted and sleep prevention released.",
+                        "Automator stopped. Anti-AFK timer halted and sleep prevention released.",
                     );
                     self.ui_dirty = true;
                     self.emit_snapshot(now);
@@ -345,7 +351,7 @@ impl EngineWorker {
                 }
                 if self.config != config {
                     self.logs.push(
-                        LogLevel::Info,
+                        LogLevel::Action,
                         None,
                         format!(
                             "Configuration updated (scan={}s, ui={}ms, cooldown={}s, afk={}s).",
@@ -396,7 +402,7 @@ impl EngineWorker {
                     self.global_afk_deadline = Some(capped);
                 }
                 self.logs.push(
-                    LogLevel::Info,
+                    LogLevel::Action,
                     None,
                     format!("Anti-AFK interval updated to {} min.", minutes),
                 );
@@ -425,7 +431,7 @@ impl EngineWorker {
                     self.next_scan_deadline = Some(capped);
                 }
                 self.logs.push(
-                    LogLevel::Info,
+                    LogLevel::Action,
                     None,
                     format!("Scan interval updated to {}s.", seconds),
                 );
@@ -447,10 +453,10 @@ impl EngineWorker {
                 }
                 self.config = updated.clone();
                 self.logs.push(
-                    LogLevel::Info,
+                    LogLevel::Action,
                     None,
                     format!(
-                        "Event tracking {} (keywords: {:?}).",
+                        "Smart Click {} (keywords: {:?}).",
                         if enabled { "enabled" } else { "disabled" },
                         updated.event_target_keywords
                     ),
@@ -460,13 +466,200 @@ impl EngineWorker {
                 self.emit_snapshot(now);
             }
             UiCommand::ExportLogsJsonl => {
+                self.logs.push(
+                    LogLevel::Action,
+                    None,
+                    "Exported activity logs to JSONL.",
+                );
                 let content = self.logs.export_jsonl();
                 self.ui_sink.emit(UiEvent::LogsJsonlExported {
-                    filename: "roblox-watcher-logs.jsonl".to_string(),
+                    filename: "roblox-automator-logs.jsonl".to_string(),
                     content,
                 });
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::StartMacroRecording { window_index } => {
+                if self.macro_recorder.is_some() {
+                    return;
+                }
+                let windows = self.window_svc.discover_windows(
+                    &self.config.target_process_names,
+                    &self.config.fallback_window_title,
+                );
+                let Some(win) = windows.get(window_index) else {
+                    self.ui_sink.emit(UiEvent::ActionError {
+                        message: format!("Roblox window #{} not found for recording.", window_index + 1),
+                    });
+                    return;
+                };
+                self.ensure_uniform_window_size(&win);
+                match crate::input::recorder::start_macro_recording(win.hwnd, 3) {
+                    Ok(handle) => {
+                        self.macro_recorder = Some(handle);
+                        self.logs.push(
+                            LogLevel::Action,
+                            Some(win.instance_id),
+                            format!(
+                                "Starting macro recording on window #{} (3s countdown, move mouse out to stop)...",
+                                window_index + 1
+                            ),
+                        );
+                        self.ui_dirty = true;
+                        self.emit_snapshot(now);
+                    }
+                    Err(err) => {
+                        self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    }
+                }
+            }
+            UiCommand::StopMacroRecording => {
+                self.finish_macro_recording(now);
+            }
+            UiCommand::TestMacro { window_index } => {
+                if self.config.macro_steps.is_empty()
+                    || self.macro_player.is_some()
+                    || self.macro_recorder.is_some()
+                {
+                    return;
+                }
+                let windows = self.window_svc.discover_windows(
+                    &self.config.target_process_names,
+                    &self.config.fallback_window_title,
+                );
+                let Some(win) = windows.get(window_index) else {
+                    self.ui_sink.emit(UiEvent::ActionError {
+                        message: format!("Roblox window #{} not found for macro playback.", window_index + 1),
+                    });
+                    return;
+                };
+                self.ensure_uniform_window_size(win);
+                self.logs.push(
+                    LogLevel::Action,
+                    Some(win.instance_id),
+                    format!(
+                        "Playing macro ({} steps) on window #{}...",
+                        self.config.macro_steps.len(),
+                        window_index + 1
+                    ),
+                );
+                let stop_flag = Arc::new(AtomicBool::new(false));
+                let stop_c = Arc::clone(&stop_flag);
+                let input_svc = Arc::clone(&self.input_svc);
+                let steps = self.config.macro_steps.clone();
+                let hwnd_raw = win.hwnd.0 as isize;
+                let handle = thread::spawn(move || {
+                    let hwnd = windows::Win32::Foundation::HWND(hwnd_raw as *mut std::ffi::c_void);
+                    let _ = input_svc.play_macro(hwnd, &steps, &stop_c);
+                });
+                self.macro_player = Some((stop_flag, handle));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::StopMacroPlayback => {
+                if let Some((ref stop_flag, _)) = self.macro_player {
+                    stop_flag.store(true, Ordering::SeqCst);
+                    self.logs.push(LogLevel::Action, None, "Stopping macro playback...");
+                }
+            }
+            UiCommand::ClearMacro => {
+                self.config.macro_steps.clear();
+                self.config.macro_enabled = false;
+                let _ = StorageService::save_config(&self.config);
+                self.logs.push(LogLevel::Action, None, "Cleared recorded macro.");
+                self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
+            }
+            UiCommand::SetMacroEnabled { enabled } => {
+                self.config.macro_enabled = enabled;
+                if let Err(err) = StorageService::save_config(&self.config) {
+                    self.ui_sink.emit(UiEvent::ActionError { message: err });
+                    return;
+                }
+                self.logs.push(
+                    LogLevel::Action,
+                    None,
+                    format!("Macro replay {}.", if enabled { "enabled" } else { "disabled" }),
+                );
+                self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
+                self.ui_dirty = true;
+                self.emit_snapshot(now);
             }
         }
+    }
+
+    fn ensure_uniform_window_size(&self, win: &RobloxWindowInfo) {
+        if !self.config.uniform_window_size {
+            return;
+        }
+        let target_w = self.config.uniform_window_width;
+        let target_h = self.config.uniform_window_height;
+        if (win.window_width - target_w).abs() > 4 || (win.window_height - target_h).abs() > 4 {
+            let _ = self
+                .window_svc
+                .resize_window_in_place(win.hwnd, target_w, target_h);
+        }
+    }
+
+    fn poll_macro_player(&mut self, now: Instant) {
+        let finished = self
+            .macro_player
+            .as_ref()
+            .map(|(_, h)| h.is_finished())
+            .unwrap_or(false);
+        if finished {
+            if let Some((_, handle)) = self.macro_player.take() {
+                let _ = handle.join();
+            }
+            self.ui_dirty = true;
+            self.emit_snapshot(now);
+        }
+    }
+
+    fn poll_macro_recorder(&mut self, now: Instant) {
+        let finished = self
+            .macro_recorder
+            .as_ref()
+            .map(|r| r.is_finished())
+            .unwrap_or(false);
+        if finished {
+            self.finish_macro_recording(now);
+        } else if self.macro_recorder.is_some() {
+            self.ui_dirty = true;
+            self.emit_snapshot(now);
+        }
+    }
+
+    fn finish_macro_recording(&mut self, now: Instant) {
+        let Some(handle) = self.macro_recorder.take() else {
+            return;
+        };
+        let steps = handle.join();
+        let count = steps.len();
+        let dur_ms = crate::models::MacroStep::total_duration_ms(&steps);
+        if !steps.is_empty() {
+            self.config.macro_steps = steps;
+            let _ = StorageService::save_config(&self.config);
+            self.logs.push(
+                LogLevel::Action,
+                None,
+                format!(
+                    "Macro recorded: {} steps ({:.1}s).",
+                    count,
+                    (dur_ms as f64) / 1000.0
+                ),
+            );
+            self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
+        } else {
+            self.logs.push(
+                LogLevel::Warn,
+                None,
+                "Macro recording stopped with 0 events captured.",
+            );
+        }
+        self.ui_dirty = true;
+        self.emit_snapshot(now);
     }
 
     fn discover_and_sync_windows(&mut self, now: Instant, running: bool) -> Vec<RobloxWindowInfo> {
@@ -489,6 +682,9 @@ impl EngineWorker {
 
         for (idx, win) in windows.iter().enumerate() {
             let win_num = idx + 1;
+            if running {
+                self.ensure_uniform_window_size(&win);
+            }
             self.ordered_ids.push(win.instance_id);
             let tracker = self.trackers.entry(win.instance_id).or_insert_with(|| {
                 self.ui_dirty = true;
@@ -759,6 +955,13 @@ impl EngineWorker {
                                     tracker.restarts += 1;
                                     tracker.start_reconnect_cooldown(Instant::now(), cooldown);
                                     tracker.cached_ocr = None;
+                                    if self.config.macro_enabled
+                                        && self.config.macro_replay_on_reconnect
+                                        && !self.config.macro_steps.is_empty()
+                                    {
+                                        tracker.pending_macro_replay_at =
+                                            Some(Instant::now() + Duration::from_secs(4));
+                                    }
                                 }
                             }
                             Err(reason) => {
@@ -792,9 +995,50 @@ impl EngineWorker {
                 continue;
             }
 
-            // 2. Healthy state & optional event navigation
-            if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
+            // 2. Healthy state & optional post-reconnect macro / event navigation
+            let run_reconnect_macro = if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
                 tracker.reconnect_crop_base64 = None;
+                if let Some(due) = tracker.pending_macro_replay_at {
+                    if Instant::now() >= due {
+                        tracker.pending_macro_replay_at = None;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if run_reconnect_macro
+                && self.config.macro_enabled
+                && self.config.macro_replay_on_reconnect
+                && !self.config.macro_steps.is_empty()
+            {
+                self.ensure_uniform_window_size(&win);
+                self.logs.push(
+                    LogLevel::Action,
+                    Some(win.instance_id),
+                    format!(
+                        "Replaying post-reconnect macro ({} steps) on window #{}...",
+                        self.config.macro_steps.len(),
+                        win_num
+                    ),
+                );
+                if let Err(reason) = self.input_svc.play_macro(
+                    win.hwnd,
+                    &self.config.macro_steps,
+                    &AtomicBool::new(false),
+                ) {
+                    self.metrics.input_failures += 1;
+                    self.logs.push(
+                        LogLevel::Error,
+                        Some(win.instance_id),
+                        format!("Post-reconnect macro failed on window #{}: {}", win_num, reason),
+                    );
+                }
             }
             let mut event_status = self.config.ui_strings.status_healthy.clone();
             if self.config.auto_teleport_to_event && !self.config.event_target_keywords.is_empty() {
@@ -905,6 +1149,37 @@ impl EngineWorker {
                                 if let Some(tracker) = self.trackers.get_mut(&win.instance_id) {
                                     tracker.start_event_cooldown(Instant::now(), cooldown);
                                     tracker.cached_ocr = None;
+                                }
+                                if self.config.macro_enabled
+                                    && self.config.macro_replay_on_event
+                                    && !self.config.macro_steps.is_empty()
+                                {
+                                    std::thread::sleep(Duration::from_millis(1500));
+                                    self.ensure_uniform_window_size(&win);
+                                    self.logs.push(
+                                        LogLevel::Action,
+                                        Some(win.instance_id),
+                                        format!(
+                                            "Replaying post-event macro ({} steps) on window #{}...",
+                                            self.config.macro_steps.len(),
+                                            win_num
+                                        ),
+                                    );
+                                    if let Err(reason) = self.input_svc.play_macro(
+                                        win.hwnd,
+                                        &self.config.macro_steps,
+                                        &AtomicBool::new(false),
+                                    ) {
+                                        self.metrics.input_failures += 1;
+                                        self.logs.push(
+                                            LogLevel::Error,
+                                            Some(win.instance_id),
+                                            format!(
+                                                "Post-event macro failed on window #{}: {}",
+                                                win_num, reason
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                             Err(reason) => {
@@ -1087,6 +1362,7 @@ impl EngineWorker {
             .unwrap_or_else(|| self.config.ui_strings.status_no_event.clone());
 
         let snapshot = UIStateSnapshot {
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
             running,
             instances: cards,
             queue_status: if running {
@@ -1104,6 +1380,15 @@ impl EngineWorker {
             anti_afk_enabled: self.config.anti_afk_enabled,
             anti_afk_interval_minutes: (self.config.anti_afk_interval_seconds / 60.0).round() as u32,
             next_afk_remaining_secs: global_afk_secs,
+            macro_enabled: self.config.macro_enabled,
+            macro_recording: self.macro_recorder.is_some(),
+            macro_playing: self.macro_player.is_some(),
+            macro_countdown_secs: self
+                .macro_recorder
+                .as_ref()
+                .and_then(|r| r.countdown_secs()),
+            macro_step_count: self.config.macro_steps.len(),
+            macro_duration_ms: crate::models::MacroStep::total_duration_ms(&self.config.macro_steps),
             logs: self.logs.snapshot(),
             metrics: self.metrics.clone(),
         };

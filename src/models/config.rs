@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::macro_seq::MacroStep;
+
 pub const CURRENT_CONFIG_SCHEMA_VERSION: u32 = 2;
 
 pub fn default_target_process_names() -> Vec<String> {
@@ -83,7 +85,7 @@ pub struct UiStringsConfig {
 impl Default for UiStringsConfig {
     fn default() -> Self {
         Self {
-            app_title: "Roblox Watcher".to_string(),
+            app_title: "Roblox Automator".to_string(),
             status_idle: "Idle".to_string(),
             status_active: "Active".to_string(),
             status_standby: "Standby".to_string(),
@@ -185,6 +187,32 @@ pub struct Config {
     )]
     pub ignore_phrases: Vec<String>,
     pub ui_strings: UiStringsConfig,
+    #[serde(default)]
+    pub macro_enabled: bool,
+    #[serde(default = "default_true")]
+    pub macro_replay_on_reconnect: bool,
+    #[serde(default = "default_true")]
+    pub macro_replay_on_event: bool,
+    #[serde(default = "default_true")]
+    pub uniform_window_size: bool,
+    #[serde(default = "default_uniform_width")]
+    pub uniform_window_width: i32,
+    #[serde(default = "default_uniform_height")]
+    pub uniform_window_height: i32,
+    #[serde(default)]
+    pub macro_steps: Vec<MacroStep>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_uniform_width() -> i32 {
+    800
+}
+
+fn default_uniform_height() -> i32 {
+    600
 }
 
 impl Default for Config {
@@ -211,6 +239,13 @@ impl Default for Config {
             event_target_keywords: Vec::new(),
             ignore_phrases: default_ignore_phrases(),
             ui_strings: UiStringsConfig::default(),
+            macro_enabled: false,
+            macro_replay_on_reconnect: true,
+            macro_replay_on_event: true,
+            uniform_window_size: true,
+            uniform_window_width: 800,
+            uniform_window_height: 600,
+            macro_steps: Vec::new(),
         }
     }
 }
@@ -250,6 +285,16 @@ impl Config {
             || self.anti_afk_interval_seconds > 1140.0
         {
             return Err("Anti-AFK interval must be between 1 and 19 minutes.".to_string());
+        }
+
+        if !(640..=3840).contains(&self.uniform_window_width) {
+            return Err("Uniform window width must be between 640 and 3840 pixels.".to_string());
+        }
+        if !(480..=2160).contains(&self.uniform_window_height) {
+            return Err("Uniform window height must be between 480 and 2160 pixels.".to_string());
+        }
+        if self.macro_steps.len() > 5000 {
+            self.macro_steps.truncate(5000);
         }
 
         if let Some(ref url) = self.vip_server_url {

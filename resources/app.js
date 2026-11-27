@@ -42,7 +42,7 @@
   const settingsError = document.getElementById('settingsError');
 
   toggleMasterBtn.addEventListener('click', () => {
-    sendCommand({ type: isRunning ? 'stopWatcher' : 'startWatcher' });
+    sendCommand({ type: isRunning ? 'stopAutomator' : 'startAutomator' });
   });
 
   document.getElementById('testJumpBtn').addEventListener('click', () => {
@@ -107,6 +107,47 @@
       currentAfkMinutes = next;
       document.getElementById('ribbonAfkMinutes').textContent = `${next}m`;
       sendCommand({ type: 'setAntiAfkInterval', minutes: next });
+    }
+  });
+
+  // Macro controls wired to backend recorder & replayer
+  const macroStatBox = document.getElementById('macroStatBox');
+  const ribbonMacroEnabled = document.getElementById('ribbonMacroEnabled');
+  const ribbonMacroToggleLabel = document.getElementById('ribbonMacroToggleLabel');
+  const macroRecordBtn = document.getElementById('macroRecordBtn');
+  const macroWindowSelect = document.getElementById('macroWindowSelect');
+  const macroPlayBtn = document.getElementById('macroPlayBtn');
+  const macroClearBtn = document.getElementById('macroClearBtn');
+  const macroSummaryLabel = document.getElementById('macroSummaryLabel');
+  let macroRecordingState = false;
+  let macroPlayingState = false;
+
+  ribbonMacroEnabled.addEventListener('change', () => {
+    const on = ribbonMacroEnabled.checked;
+    ribbonMacroToggleLabel.textContent = on ? 'ON' : 'OFF';
+    ribbonMacroToggleLabel.style.color = on ? '#fbbf24' : '#94a3b8';
+    sendCommand({ type: 'setMacroEnabled', enabled: on });
+  });
+
+  macroRecordBtn.addEventListener('click', () => {
+    if (macroRecordingState) {
+      sendCommand({ type: 'stopMacroRecording' });
+    } else {
+      const idx = parseInt(macroWindowSelect.value, 10);
+      sendCommand({ type: 'startMacroRecording', windowIndex: Number.isNaN(idx) ? 0 : idx });
+    }
+  });
+
+  macroPlayBtn.addEventListener('click', () => {
+    const idx = parseInt(macroWindowSelect.value, 10);
+    sendCommand({ type: 'testMacro', windowIndex: Number.isNaN(idx) ? 0 : idx });
+  });
+
+  macroClearBtn.addEventListener('click', () => {
+    if (macroPlayingState) {
+      sendCommand({ type: 'stopMacroPlayback' });
+    } else {
+      sendCommand({ type: 'clearMacro' });
     }
   });
 
@@ -178,7 +219,7 @@
 
     const splitList = (id) => document.getElementById(id).value.split(',').map(s => s.trim()).filter(Boolean);
     const prevUiStrings = currentConfig.uiStrings || {};
-    const appTitle = document.getElementById('cfgAppTitle').value.trim() || prevUiStrings.appTitle || 'Roblox Watcher';
+    const appTitle = prevUiStrings.appTitle || 'Roblox Automator';
 
     const updated = {
       ...currentConfig,
@@ -213,8 +254,7 @@
     document.getElementById('cfgAntiAfkEnabled').checked = cfg.antiAfkEnabled ?? true;
     document.getElementById('cfgAntiAfkMinutes').value = Math.round((cfg.antiAfkIntervalSeconds ?? 600) / 60);
 
-    const appTitle = cfg.uiStrings?.appTitle || 'Roblox Watcher';
-    document.getElementById('cfgAppTitle').value = appTitle;
+    const appTitle = cfg.uiStrings?.appTitle || 'Roblox Automator';
     document.title = appTitle;
   }
 
@@ -225,8 +265,13 @@
       toggleMasterBtn.className = 'btn btn-danger mono';
       toggleMasterBtn.textContent = 'Stop All';
       pulseDot.classList.add('active');
-      pulseLabel.textContent = 'MONITORING';
-      pulseLabel.style.color = '#38bdf8';
+      if (data.sessionUptimeSecs !== null && data.sessionUptimeSecs !== undefined) {
+        pulseLabel.textContent = formatDuration(data.sessionUptimeSecs);
+        pulseLabel.style.color = '#34d399';
+      } else {
+        pulseLabel.textContent = 'RUNNING';
+        pulseLabel.style.color = '#34d399';
+      }
     } else {
       toggleMasterBtn.className = 'btn btn-primary mono';
       toggleMasterBtn.textContent = 'Start All';
@@ -235,24 +280,80 @@
       pulseLabel.style.color = '#94a3b8';
     }
 
+    if (data.appVersion) {
+      const verEl = document.getElementById('appVersionBadge');
+      if (verEl) {
+        verEl.textContent = `v${data.appVersion}`;
+      }
+    }
+
     const winCount = data.instances ? data.instances.length : 0;
     document.getElementById('activeWinsCount').textContent = winCount;
     const winsUnitEl = document.getElementById('activeWinsUnit');
     if (winsUnitEl) {
       winsUnitEl.textContent = winCount === 1 ? 'window' : 'windows';
     }
-    document.getElementById('queueStatusLabel').textContent = data.queueStatus || 'Idle';
 
-    const uptimeEl = document.getElementById('ribbonUptime');
-    if (isRunning && data.sessionUptimeSecs !== null && data.sessionUptimeSecs !== undefined) {
-      uptimeEl.textContent = formatDuration(data.sessionUptimeSecs);
-      uptimeEl.style.color = '#34d399';
-    } else {
-      uptimeEl.textContent = '--';
-      uptimeEl.style.color = '#94a3b8';
-    }
     const restarts = data.totalRestarts ?? 0;
     document.getElementById('ribbonTotalRestarts').textContent = `${restarts} ${restarts === 1 ? 'rejoin' : 'rejoins'}`;
+
+    if (macroWindowSelect) {
+      const prevVal = macroWindowSelect.value;
+      const targetCount = Math.max(winCount, 1);
+      if (macroWindowSelect.options.length !== targetCount) {
+        macroWindowSelect.innerHTML = Array.from({ length: targetCount }, (_, i) => {
+          return `<option value="${i}">#${i + 1}</option>`;
+        }).join('');
+        if (prevVal && Array.from(macroWindowSelect.options).some(o => o.value === prevVal)) {
+          macroWindowSelect.value = prevVal;
+        }
+      }
+    }
+
+    if (ribbonMacroEnabled) {
+      const mOn = Boolean(data.macroEnabled);
+      ribbonMacroEnabled.checked = mOn;
+      ribbonMacroToggleLabel.textContent = mOn ? 'ON' : 'OFF';
+      ribbonMacroToggleLabel.style.color = mOn ? '#fbbf24' : '#94a3b8';
+    }
+
+    macroRecordingState = Boolean(data.macroRecording);
+    macroPlayingState = Boolean(data.macroPlaying);
+    macroRecordBtn.classList.toggle('recording', macroRecordingState);
+    macroStatBox.classList.toggle('recording', macroRecordingState);
+    macroRecordBtn.innerHTML = macroRecordingState ? '&#9632; Stop' : '&#9679; Rec';
+    macroRecordBtn.disabled = macroPlayingState;
+
+    const stepCount = data.macroStepCount ?? 0;
+    const durSecs = ((data.macroDurationMs ?? 0) / 1000).toFixed(1);
+    if (macroRecordingState && data.macroCountdownSecs) {
+      macroSummaryLabel.textContent = `Starting in ${data.macroCountdownSecs}...`;
+      macroSummaryLabel.style.color = '#fbbf24';
+    } else if (macroRecordingState) {
+      macroSummaryLabel.textContent = 'Recording (leave win)...';
+      macroSummaryLabel.style.color = '#fb7185';
+    } else if (macroPlayingState) {
+      macroSummaryLabel.textContent = 'Playing macro...';
+      macroSummaryLabel.style.color = '#34d399';
+    } else if (stepCount > 0) {
+      macroSummaryLabel.textContent = `${stepCount} steps · ${durSecs}s`;
+      macroSummaryLabel.style.color = '#34d399';
+    } else {
+      macroSummaryLabel.textContent = 'No macro';
+      macroSummaryLabel.style.color = '';
+    }
+    macroPlayBtn.disabled = macroRecordingState || macroPlayingState || stepCount === 0;
+    if (macroPlayingState) {
+      macroClearBtn.innerHTML = '&#9632;';
+      macroClearBtn.classList.add('macro-stop-btn');
+      macroClearBtn.title = 'Stop macro playback';
+      macroClearBtn.disabled = false;
+    } else {
+      macroClearBtn.innerHTML = '&#10005;';
+      macroClearBtn.classList.remove('macro-stop-btn');
+      macroClearBtn.title = 'Clear recorded macro';
+      macroClearBtn.disabled = macroRecordingState || stepCount === 0;
+    }
 
     if (data.scanIntervalSeconds) {
       currentScanSeconds = data.scanIntervalSeconds;
@@ -318,7 +419,7 @@
 
         const thumbHtml = inst.screenshotBase64
           ? `<img src="data:image/jpeg;base64,${escapeHtml(inst.screenshotBase64)}" alt="Roblox #${idx + 1}">`
-          : `<div class="mono" style="color:#64748b;font-size:11px;">No Frame</div>`;
+          : `<div class="mono" style="color:#64748b;font-size:13px;">No Frame</div>`;
 
         const eventCropHtml = inst.eventCropBase64
           ? `<img src="data:image/jpeg;base64,${escapeHtml(inst.eventCropBase64)}" alt="Target crop" class="event-crop-overlay">`
@@ -389,7 +490,7 @@
         settingsModal.classList.add('hidden');
         break;
       case 'logsJsonlExported': {
-        const filename = event.payload?.filename || 'roblox-watcher-logs.jsonl';
+        const filename = event.payload?.filename || 'roblox-automator-logs.jsonl';
         const content = event.payload?.content || '';
         const a = document.createElement('a');
         a.href = 'data:application/x-ndjson;charset=utf-8,' + encodeURIComponent(content);

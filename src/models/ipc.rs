@@ -7,8 +7,8 @@ use crate::models::state::UIStateSnapshot;
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum UiCommand {
-    StartWatcher,
-    StopWatcher,
+    StartAutomator,
+    StopAutomator,
     TriggerTestJump,
     ClearLogs,
     GetConfig,
@@ -17,6 +17,18 @@ pub enum UiCommand {
     SetScanInterval { seconds: u32 },
     SetEventTracking { enabled: bool, keywords: Vec<String> },
     ExportLogsJsonl,
+    StartMacroRecording {
+        #[serde(rename = "windowIndex")]
+        window_index: usize,
+    },
+    StopMacroRecording,
+    TestMacro {
+        #[serde(rename = "windowIndex")]
+        window_index: usize,
+    },
+    StopMacroPlayback,
+    ClearMacro,
+    SetMacroEnabled { enabled: bool },
 }
 
 impl UiCommand {
@@ -64,10 +76,22 @@ mod tests {
 
     #[test]
     fn test_ipc_command_defensive_parsing() {
-        let valid = r#"{"type": "startWatcher"}"#;
+        let valid = r#"{"type": "startAutomator"}"#;
         assert_eq!(
             UiCommand::parse_and_validate(valid).unwrap(),
-            UiCommand::StartWatcher
+            UiCommand::StartAutomator
+        );
+
+        let rec = r#"{"type": "startMacroRecording", "windowIndex": 1}"#;
+        assert_eq!(
+            UiCommand::parse_and_validate(rec).unwrap(),
+            UiCommand::StartMacroRecording { window_index: 1 }
+        );
+
+        let test_m = r#"{"type": "testMacro", "windowIndex": 0}"#;
+        assert_eq!(
+            UiCommand::parse_and_validate(test_m).unwrap(),
+            UiCommand::TestMacro { window_index: 0 }
         );
 
         let unknown = r#"{"type": "execShell", "cmd": "whoami"}"#;

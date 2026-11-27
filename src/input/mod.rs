@@ -1,18 +1,23 @@
+pub mod recorder;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
-use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{ClientToScreen, ScreenToClient};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEINPUT, VK_SPACE,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MAPVK_VK_TO_VSC,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
+    MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    VK_SPACE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, GetCursorPos, GetForegroundWindow, PostMessageW, SetCursorPos,
     SetForegroundWindow, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
 };
 
-use crate::models::FailureReason;
+use crate::models::{FailureReason, MacroStep, MouseBtn};
 use crate::window::{Win32WindowService, WindowDiscovery};
 
 static INPUT_LOCK: Mutex<()> = Mutex::new(());
@@ -20,6 +25,14 @@ static INPUT_LOCK: Mutex<()> = Mutex::new(());
 pub trait InputAutomation: Send + Sync {
     fn click_at(&self, hwnd: HWND, screen_x: i32, screen_y: i32) -> Result<(), FailureReason>;
     fn anti_afk_jump(&self, hwnd: HWND) -> Result<(), FailureReason>;
+    fn play_macro(
+        &self,
+        _hwnd: HWND,
+        _steps: &[MacroStep],
+        _stop_flag: &AtomicBool,
+    ) -> Result<(), FailureReason> {
+        Ok(())
+    }
 }
 
 /// RAII guard that always restores cursor position and previous foreground window,
@@ -190,6 +203,156 @@ impl Win32InputService {
 }
 
 impl InputAutomation for Win32InputService {
+    fn play_macro(
+        &self,
+        hwnd: HWND,
+        steps: &[MacroStep],
+        stop_flag: &AtomicBool,
+    ) -> Result<(), FailureReason> {
+        if steps.is_empty() || stop_flag.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let _guard = INPUT_LOCK.lock().unwrap();
+        let _restore = ForegroundAndCursorGuard::capture(hwnd);
+        Self::focus_window(hwnd, 450)?;
+
+        unsafe {
+            let mut client = RECT::default();
+            if GetClientRect(hwnd, &mut client).is_err() {
+                return Err(FailureReason::InputFailed(
+                    "GetClientRect failed for macro playback".to_string(),
+                ));
+            }
+            let cw = (client.right - client.left).max(1);
+            let ch = (client.bottom - client.top).max(1);
+
+            let to_screen = |nx: f32, ny: f32| -> POINT {
+                let mut pt = POINT {
+                    x: (nx.clamp(0.0, 1.0) * cw as f32).round() as i32,
+                    y: (ny.clamp(0.0, 1.0) * ch as f32).round() as i32,
+                };
+                let _ = ClientToScreen(hwnd, &mut pt);
+                pt
+            };
+
+            for step in steps {
+                if stop_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut remaining = step.delay_ms().min(10_000);
+                while remaining > 0 {
+                    if stop_flag.load(Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let slice = remaining.min(40);
+                    std::thread::sleep(Duration::from_millis(slice));
+                    remaining -= slice;
+                }
+
+                match step {
+                    MacroStep::Key {
+                        vk,
+                        scan_code,
+                        extended,
+                        down,
+                        ..
+                    } => {
+                        let sc = if *scan_code != 0 {
+                            *scan_code
+                        } else {
+                            MapVirtualKeyW(*vk as u32, MAPVK_VK_TO_VSC) as u16
+                        };
+                        let mut flags = KEYEVENTF_SCANCODE;
+                        if *extended {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+                        if !*down {
+                            flags |= KEYEVENTF_KEYUP;
+                        }
+                        let mut input = [INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: Default::default(),
+                                    wScan: sc,
+                                    dwFlags: flags,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        }];
+                        let _ = SendInput(&mut input, std::mem::size_of::<INPUT>() as i32);
+                        let msg = if *down { WM_KEYDOWN } else { WM_KEYUP };
+                        let _ = PostMessageW(hwnd, msg, WPARAM(*vk as usize), LPARAM(0));
+                    }
+                    MacroStep::MouseMove { nx, ny, .. } => {
+                        let pt = to_screen(*nx, *ny);
+                        let _ = SetCursorPos(pt.x, pt.y);
+                        let mut c_pt = pt;
+                        let _ = ScreenToClient(hwnd, &mut c_pt);
+                        let lp = LPARAM(
+                            (((c_pt.y as isize) & 0xFFFF) << 16) | ((c_pt.x as isize) & 0xFFFF),
+                        );
+                        let _ = PostMessageW(hwnd, WM_MOUSEMOVE, WPARAM(0), lp);
+                    }
+                    MacroStep::MouseButton {
+                        button,
+                        down,
+                        nx,
+                        ny,
+                        ..
+                    } => {
+                        let pt = to_screen(*nx, *ny);
+                        let _ = SetCursorPos(pt.x, pt.y);
+                        std::thread::sleep(Duration::from_millis(12));
+                        let flag = match (button, down) {
+                            (MouseBtn::Left, true) => MOUSEEVENTF_LEFTDOWN,
+                            (MouseBtn::Left, false) => MOUSEEVENTF_LEFTUP,
+                            (MouseBtn::Right, true) => MOUSEEVENTF_RIGHTDOWN,
+                            (MouseBtn::Right, false) => MOUSEEVENTF_RIGHTUP,
+                            (MouseBtn::Middle, true) => MOUSEEVENTF_MIDDLEDOWN,
+                            (MouseBtn::Middle, false) => MOUSEEVENTF_MIDDLEUP,
+                        };
+                        let mut input = [INPUT {
+                            r#type: INPUT_MOUSE,
+                            Anonymous: INPUT_0 {
+                                mi: MOUSEINPUT {
+                                    dx: 0,
+                                    dy: 0,
+                                    mouseData: 0,
+                                    dwFlags: flag,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        }];
+                        let _ = SendInput(&mut input, std::mem::size_of::<INPUT>() as i32);
+                    }
+                    MacroStep::MouseWheel { delta, nx, ny, .. } => {
+                        let pt = to_screen(*nx, *ny);
+                        let _ = SetCursorPos(pt.x, pt.y);
+                        let mut input = [INPUT {
+                            r#type: INPUT_MOUSE,
+                            Anonymous: INPUT_0 {
+                                mi: MOUSEINPUT {
+                                    dx: 0,
+                                    dy: 0,
+                                    mouseData: (*delta as i32) as u32,
+                                    dwFlags: MOUSEEVENTF_WHEEL,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        }];
+                        let _ = SendInput(&mut input, std::mem::size_of::<INPUT>() as i32);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn click_at(&self, hwnd: HWND, screen_x: i32, screen_y: i32) -> Result<(), FailureReason> {
         let _guard = INPUT_LOCK.lock().unwrap();
         let _restore = ForegroundAndCursorGuard::capture(hwnd);

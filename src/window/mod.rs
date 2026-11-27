@@ -1,4 +1,5 @@
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -6,7 +7,8 @@ use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetClientRect, GetForegroundWindow, GetWindowRect,
     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
-    IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+    IsWindowVisible, SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOZORDER, SW_RESTORE, SW_SHOW,
 };
 
 use crate::models::InstanceId;
@@ -30,6 +32,9 @@ pub trait WindowDiscovery: Send + Sync {
     fn discover_windows(&self, process_names: &[String], fallback_title: &str) -> Vec<RobloxWindowInfo>;
     fn is_window_alive(&self, hwnd: HWND) -> bool;
     fn activate_window(&self, hwnd: HWND) -> Result<(), String>;
+    fn resize_window_in_place(&self, _hwnd: HWND, _width: i32, _height: i32) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub struct Win32WindowService;
@@ -72,6 +77,24 @@ impl Win32WindowService {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
                 std::thread::sleep(std::time::Duration::from_millis(120));
             }
+        }
+    }
+
+    pub fn center_cursor_in_window(hwnd: HWND) -> Result<(), String> {
+        unsafe {
+            let mut client = RECT::default();
+            GetClientRect(hwnd, &mut client)
+                .map_err(|e| format!("GetClientRect failed: {}", e))?;
+            let mut pt = POINT {
+                x: (client.right - client.left) / 2,
+                y: (client.bottom - client.top) / 2,
+            };
+            if !ClientToScreen(hwnd, &mut pt).as_bool() {
+                return Err("ClientToScreen failed".to_string());
+            }
+            SetCursorPos(pt.x, pt.y)
+                .map_err(|e| format!("SetCursorPos failed: {}", e))?;
+            Ok(())
         }
     }
 }
@@ -181,6 +204,26 @@ impl WindowDiscovery for Win32WindowService {
                 let _ = AttachThreadInput(cur_tid, fg_tid, false);
             }
             std::thread::sleep(std::time::Duration::from_millis(120));
+        }
+        Ok(())
+    }
+
+    fn resize_window_in_place(&self, hwnd: HWND, width: i32, height: i32) -> Result<(), String> {
+        if !self.is_window_alive(hwnd) {
+            return Err("Target window no longer exists".to_string());
+        }
+        Self::restore_if_minimized(hwnd);
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                width,
+                height,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+            .map_err(|e| format!("SetWindowPos failed: {}", e))?;
         }
         Ok(())
     }

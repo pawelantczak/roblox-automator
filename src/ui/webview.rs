@@ -37,7 +37,16 @@ pub fn create_webview(
 
     let builder = WebViewBuilder::new()
         .with_html(bundled_html)
-        .with_navigation_handler(|uri| uri == "about:blank" || uri.starts_with("data:"))
+        .with_navigation_handler(|uri| {
+            let trimmed = uri.trim_end_matches('/');
+            if matches!(trimmed, "https://ps99clan.xyz" | "https://discord.gg/ce5yGvTf9") {
+                let _ = std::process::Command::new("explorer")
+                    .arg(trimmed)
+                    .spawn();
+                return false;
+            }
+            uri == "about:blank" || uri.starts_with("data:")
+        })
         .with_ipc_handler(move |msg| match UiCommand::parse_and_validate(msg.body().as_str()) {
             Ok(cmd) => {
                 if let Err(err) = engine_handle.send(cmd) {

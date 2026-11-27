@@ -14,6 +14,7 @@ pub struct InstanceTracker {
     pub next_afk_deadline: Option<Instant>,
     pub reconnect_cooldown_until: Option<Instant>,
     pub event_cooldown_until: Option<Instant>,
+    pub pending_macro_replay_at: Option<Instant>,
     pub last_frame_hash: Option<u64>,
     pub cached_thumbnail: Option<String>,
     pub event_crop_base64: Option<String>,
@@ -36,6 +37,7 @@ impl InstanceTracker {
             next_afk_deadline: None,
             reconnect_cooldown_until: None,
             event_cooldown_until: None,
+            pending_macro_replay_at: None,
             last_frame_hash: None,
             cached_thumbnail: None,
             event_crop_base64: None,
@@ -67,6 +69,7 @@ impl InstanceTracker {
         self.event_status = standby_label.to_string();
         self.event_crop_base64 = None;
         self.reconnect_crop_base64 = None;
+        self.pending_macro_replay_at = None;
     }
 
     /// Initializes anti-AFK deadline safely for newly active or discovered instances.

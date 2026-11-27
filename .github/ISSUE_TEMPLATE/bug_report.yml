@@ -1,0 +1,64 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Roblox Automator
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need quick help? Join our [Discord](https://discord.gg/ce5yGvTf9).
+
+  - type: input
+    id: version
+    attributes:
+      label: App Version
+      description: Which version of Roblox Automator are you running? (shown in the bottom-left footer or log file)
+      placeholder: "e.g. v0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows Version
+      description: e.g. Windows 11 23H2, Windows 10 22H2
+      placeholder: "Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Open X Roblox windows
+        2. Enable ...
+        3. Observe ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full Log File
+      description: Attach your full `roblox-automator-logs.jsonl` (click **Download** in Activity Telemetry) or `roblox-automator.jsonl` by dragging & dropping the file here, or paste its full contents.
+      placeholder: "Drag & drop roblox-automator-logs.jsonl here or paste the full log..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Optional screenshots of the Roblox Automator window or Roblox client.
+    validations:
+      required: false

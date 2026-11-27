@@ -1,6 +1,6 @@
-# Roblox Watcher (Windows)
+# Roblox Automator (Windows)
 
-Roblox Watcher is a high-performance native Windows automation and monitoring suite designed to maintain 24/7 uptime for Roblox games (such as *Pet Simulator 99*) across multiple concurrent accounts. It detects disconnections via on-device Windows Media OCR, automatically reconnects or relaunches, navigates back to active event areas, and prevents 20-minute idle kicks using stealth Anti-AFK character jumps.
+Roblox Automator is a high-performance native Windows automation and monitoring suite designed to maintain 24/7 uptime for Roblox games (such as *Pet Simulator 99*) across multiple concurrent accounts. It detects disconnections via on-device Windows Media OCR, automatically reconnects or relaunches, navigates back to active event areas, replays recorded macros, and prevents 20-minute idle kicks using stealth Anti-AFK character jumps.
 
 ---
 
@@ -23,7 +23,7 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
   - `resources/`: Locally bundled `index.html`, `styles.css`, and `app.js` with strict Content Security Policy and typed IPC bridging (zero CDN dependencies).
   - `README.md` & `docs/images/`: End-user documentation and README screenshots (kept strictly separate from bundled `resources/`).
   - `bump.ps1` & `bump.sh`: Automated semver bumping scripts that update `VERSION`, `Cargo.toml`, and synchronize `CHANGELOG.md` and `RELEASE_NOTES.md` headers.
-  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, publishing standalone `roblox-watcher.exe` alongside native ZIP archives, extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
+  - `.github/workflows/build.yml`: GitHub Actions pipeline running on GitHub-hosted `windows-latest` runners, compiling release binaries, packaging `Roblox-Automator-v<ver>.zip` (containing `Roblox-Automator-v<ver>/roblox-automator.exe`), extracting release notes from `RELEASE_NOTES.md`, and publishing GitHub Releases.
 
 ---
 
@@ -46,7 +46,7 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
    - Instantly restores previous hardware cursor position and foreground application focus.
 6. **Windows System Guardians**:
    - Prevents screensaver locks and display dimming via `SetThreadExecutionState`.
-   - Restricts execution to a single running instance via Win32 Named Mutex (`Global\RobloxWatcher_Mutex`).
+   - Restricts execution to a single running instance via Win32 Named Mutex (`Global\RobloxAutomator_Mutex`).
 
 ---
 
@@ -82,4 +82,4 @@ Roblox Watcher is a high-performance native Windows automation and monitoring su
    - Always propose a copyable `git commit` command with a descriptive commit message considering all uncommitted changes for the user to review and run.
 7. **ALWAYS BUILD AFTER CODE CHANGES**:
    - Automatically run `cargo test` and `cargo build --release` after every code change before concluding.
-   - If `target/release/roblox-watcher.exe` is locked by a running instance (`os error 5`), report it clearly and run `cargo check --release` to verify the release build.
+   - If `target/release/roblox-automator.exe` is locked by a running instance (`os error 5`), report it clearly and run `cargo check --release` to verify the release build.

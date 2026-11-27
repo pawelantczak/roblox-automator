@@ -1,0 +1,33 @@
+name: Feature Request
+description: Suggest a new feature or improvement for Roblox Automator
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to discuss an idea first? Join our [Discord](https://discord.gg/ce5yGvTf9).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Use Case
+      description: What problem does this solve or what workflow are you trying to automate?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe how you would like this feature to work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Additional Context
+      description: Any screenshots, examples, or extra details.
+    validations:
+      required: false

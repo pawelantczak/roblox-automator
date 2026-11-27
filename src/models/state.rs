@@ -70,6 +70,7 @@ pub enum LogLevel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
+    pub version: String,
     pub timestamp: String,
     pub level: LogLevel,
     pub instance_id: Option<InstanceId>,
@@ -113,6 +114,7 @@ pub struct InstanceCard {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UIStateSnapshot {
+    pub app_version: String,
     pub running: bool,
     pub instances: Vec<InstanceCard>,
     pub queue_status: String,
@@ -126,6 +128,12 @@ pub struct UIStateSnapshot {
     pub anti_afk_enabled: bool,
     pub anti_afk_interval_minutes: u32,
     pub next_afk_remaining_secs: Option<u64>,
+    pub macro_enabled: bool,
+    pub macro_recording: bool,
+    pub macro_playing: bool,
+    pub macro_countdown_secs: Option<u8>,
+    pub macro_step_count: usize,
+    pub macro_duration_ms: u64,
     pub logs: Vec<LogEntry>,
     pub metrics: EngineMetrics,
 }
@@ -169,6 +177,7 @@ impl BoundedLogQueue {
             self.entries.pop_front();
         }
         let entry = LogEntry {
+            version: env!("CARGO_PKG_VERSION").to_string(),
             timestamp: current_timestamp_hms(),
             level,
             instance_id,

@@ -23,7 +23,7 @@ impl SingleInstanceGuard {
     fn acquire() -> Option<Self> {
         unsafe {
             let handle =
-                CreateMutexW(None, true, windows::core::w!("Global\\RobloxWatcher_Mutex"))
+                CreateMutexW(None, true, windows::core::w!("Global\\RobloxAutomator_Mutex"))
                     .ok()?;
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 let _ = CloseHandle(handle);
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
 
     // 1. Runtime architecture & WebView2 availability check before launch
     if let Err(msg) = ui::webview::check_webview2_runtime() {
-        ui::show_fatal_error_box("Roblox Watcher - Missing Runtime", &msg);
+        ui::show_fatal_error_box("Roblox Automator - Missing Runtime", &msg);
         return Ok(());
     }
 
@@ -65,5 +65,9 @@ fn main() -> anyhow::Result<()> {
     let config = StorageService::load_config();
 
     // 4. Launch main-thread UI & worker engine
-    ui::run_app(config)
+    if let Err(err) = ui::run_app(config) {
+        ui::show_fatal_error_box("Roblox Automator - Startup Error", &format!("{:#}", err));
+        return Err(err);
+    }
+    Ok(())
 }
