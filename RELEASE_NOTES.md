@@ -6,6 +6,22 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ## [Unreleased]
 
+### Added
+- **Configuration Snapshots in Exported Logs**: Exported log files now include your active settings at startup and whenever you change a setting (with your private server link redacted), making troubleshooting much easier.
+
+### Fixed
+- **Eliminated False-Positive Disconnect Detections**: Fixed an issue where short in-game text or numbers (such as timers, stats, or UI labels) could mistakenly trigger a disconnect warning and click the screen when accounts were still connected.
+
+---
+
+## [0.3.0] - 2026-11-27
+
+### Added
+- **Configuration Snapshots in Exported Logs**: Exported log files now include your active settings at startup and whenever you change a setting (with your private server link redacted), making troubleshooting much easier.
+
+### Fixed
+- **Eliminated False-Positive Disconnect Detections**: Fixed an issue where short in-game text or numbers (such as timers, stats, or UI labels) could mistakenly trigger a disconnect warning and click the screen when accounts were still connected.
+
 ---
 
 ## [0.2.0] - 2026-11-27
@@ -57,4 +73,5 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ### Removed
 - **System Tray Integration**: Removed the Windows system tray icon and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
+
 

@@ -8,6 +8,10 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] - 2026-11-27
+
 ### Added
 - `ConfigLogSnapshot` & `LogEntry.config` (`src/models/state.rs`, `src/engine/mod.rs`): logs a sanitized configuration snapshot (redacting `vip_server_url` and summarizing `macro_steps` count/duration) to JSONL on startup and on every config-mutating action without cluttering the UI console.
 
@@ -75,4 +79,5 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 - `Classifier::find_event_target` & `IconTracer` (`src/engine/classifier.rs`, `src/engine/tracer.rs`, `src/ocr/mod.rs`):
   - Isolated matched keyword `word_boxes`, added bottom-up row-gap isolation in `IconTracer`, capped sidebar upscale at `2200px`, added luminance thresholding (`lum >= 180`) in `scan_left_sidebar_high_contrast`, and added fuzzy sliding-window matching (`edit_distance <= 2`).
 - Coordinate mapping in `src/engine/mod.rs` and `Win32CaptureService` (`src/capture/mod.rs`) for window-relative click dispatch and aspect-ratio preserved thumbnails.
+
 
