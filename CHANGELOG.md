@@ -11,6 +11,9 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 ### Added
 - `ConfigLogSnapshot` & `LogEntry.config` (`src/models/state.rs`, `src/engine/mod.rs`): logs a sanitized configuration snapshot (redacting `vip_server_url` and summarizing `macro_steps` count/duration) to JSONL on startup and on every config-mutating action without cluttering the UI console.
 
+### Fixed
+- `Classifier::word_matches` (`src/engine/classifier.rs`): used `target.chars().count()` instead of UTF-8 byte length (`target.len()`) when selecting the Levenshtein edit-distance threshold, preventing 2-character multi-byte tokens (such as `"다시"` / `"연결"` in `"다시 연결"`) from receiving a `dist <= 2` budget and false-matching arbitrary 1–2 character in-game OCR fragments.
+
 ---
 
 ## [0.2.0] - 2026-11-27
