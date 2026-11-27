@@ -8,6 +8,10 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+---
+
+## [0.4.1] - 2026-11-28
+
 ### Fixed
 - `WindowsMediaOcrService::scan_left_sidebar_high_contrast` (`src/ocr/mod.rs`): added a low-saturation filter (`lum >= 205 && max_rgb - min_rgb <= 55`) so bright colored game backgrounds (such as the light-blue spawn walkway) stay white paper instead of turning black alongside white UI captions.
 - `IconTracer::trace_icon_bounds` & `Classifier::find_event_target` (`src/engine/tracer.rs`, `src/engine/classifier.rs`): added frame-relative minimum ROI dimensions (`roi_w`, `roi_h`) and a minimum `label_height` (`0.032`) fallback so tight single-line OCR text boxes (e.g. `8–9px` tall on `800×600` windows) still trace and click the event icon above the label instead of clicking just above/on the text.
@@ -93,6 +97,7 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 - `Classifier::find_event_target` & `IconTracer` (`src/engine/classifier.rs`, `src/engine/tracer.rs`, `src/ocr/mod.rs`):
   - Isolated matched keyword `word_boxes`, added bottom-up row-gap isolation in `IconTracer`, capped sidebar upscale at `2200px`, added luminance thresholding (`lum >= 180`) in `scan_left_sidebar_high_contrast`, and added fuzzy sliding-window matching (`edit_distance <= 2`).
 - Coordinate mapping in `src/engine/mod.rs` and `Win32CaptureService` (`src/capture/mod.rs`) for window-relative click dispatch and aspect-ratio preserved thumbnails.
+
 
 
 
