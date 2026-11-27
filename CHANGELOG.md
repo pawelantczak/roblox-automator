@@ -8,6 +8,9 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+### Added
+- `ConfigLogSnapshot` & `LogEntry.config` (`src/models/state.rs`, `src/engine/mod.rs`): logs a sanitized configuration snapshot (redacting `vip_server_url` and summarizing `macro_steps` count/duration) to JSONL on startup and on every config-mutating action without cluttering the UI console.
+
 ---
 
 ## [0.2.0] - 2026-11-27

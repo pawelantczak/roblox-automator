@@ -4,6 +4,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::models::{Config, MacroStep};
+
 pub type InstanceId = u64;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -67,7 +69,67 @@ pub enum LogLevel {
     Action,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigLogSnapshot {
+    pub schema_version: u32,
+    pub check_interval_seconds: f64,
+    pub ui_refresh_interval_ms: u64,
+    pub reconnect_cooldown_seconds: f64,
+    pub ocr_timeout_ms: u64,
+    pub auto_click_reconnect: bool,
+    pub auto_relaunch_on_kick: bool,
+    pub auto_teleport_to_event: bool,
+    pub anti_afk_enabled: bool,
+    pub anti_afk_interval_seconds: f64,
+    pub has_vip_server_url: bool,
+    pub target_process_names: Vec<String>,
+    pub reconnect_button_phrases: Vec<String>,
+    pub disconnect_keywords: Vec<String>,
+    pub event_target_keywords: Vec<String>,
+    pub ignore_phrases: Vec<String>,
+    pub uniform_window_size: bool,
+    pub uniform_window_width: i32,
+    pub uniform_window_height: i32,
+    pub macro_enabled: bool,
+    pub macro_replay_on_reconnect: bool,
+    pub macro_replay_on_event: bool,
+    pub macro_step_count: usize,
+    pub macro_duration_ms: u64,
+}
+
+impl From<&Config> for ConfigLogSnapshot {
+    fn from(cfg: &Config) -> Self {
+        Self {
+            schema_version: cfg.schema_version,
+            check_interval_seconds: cfg.check_interval_seconds,
+            ui_refresh_interval_ms: cfg.ui_refresh_interval_ms,
+            reconnect_cooldown_seconds: cfg.reconnect_cooldown_seconds,
+            ocr_timeout_ms: cfg.ocr_timeout_ms,
+            auto_click_reconnect: cfg.auto_click_reconnect,
+            auto_relaunch_on_kick: cfg.auto_relaunch_on_kick,
+            auto_teleport_to_event: cfg.auto_teleport_to_event,
+            anti_afk_enabled: cfg.anti_afk_enabled,
+            anti_afk_interval_seconds: cfg.anti_afk_interval_seconds,
+            has_vip_server_url: cfg.vip_server_url.is_some(),
+            target_process_names: cfg.target_process_names.clone(),
+            reconnect_button_phrases: cfg.reconnect_button_phrases.clone(),
+            disconnect_keywords: cfg.disconnect_keywords.clone(),
+            event_target_keywords: cfg.event_target_keywords.clone(),
+            ignore_phrases: cfg.ignore_phrases.clone(),
+            uniform_window_size: cfg.uniform_window_size,
+            uniform_window_width: cfg.uniform_window_width,
+            uniform_window_height: cfg.uniform_window_height,
+            macro_enabled: cfg.macro_enabled,
+            macro_replay_on_reconnect: cfg.macro_replay_on_reconnect,
+            macro_replay_on_event: cfg.macro_replay_on_event,
+            macro_step_count: cfg.macro_steps.len(),
+            macro_duration_ms: MacroStep::total_duration_ms(&cfg.macro_steps),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
     pub version: String,
@@ -77,6 +139,8 @@ pub struct LogEntry {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<ConfigLogSnapshot>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -173,6 +237,33 @@ impl BoundedLogQueue {
         message: impl Into<String>,
         icon_base64: Option<String>,
     ) {
+        self.push_entry(level, instance_id, message, icon_base64, None);
+    }
+
+    pub fn push_with_config(
+        &mut self,
+        level: LogLevel,
+        instance_id: Option<InstanceId>,
+        message: impl Into<String>,
+        config: &Config,
+    ) {
+        self.push_entry(
+            level,
+            instance_id,
+            message,
+            None,
+            Some(ConfigLogSnapshot::from(config)),
+        );
+    }
+
+    fn push_entry(
+        &mut self,
+        level: LogLevel,
+        instance_id: Option<InstanceId>,
+        message: impl Into<String>,
+        icon_base64: Option<String>,
+        config: Option<ConfigLogSnapshot>,
+    ) {
         if self.entries.len() >= self.capacity {
             self.entries.pop_front();
         }
@@ -183,6 +274,7 @@ impl BoundedLogQueue {
             instance_id,
             message: message.into(),
             icon_base64,
+            config,
         };
         if let Some(ref path) = self.jsonl_path {
             if let Ok(line) = serde_json::to_string(&entry) {

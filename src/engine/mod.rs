@@ -148,10 +148,11 @@ impl EngineWorker {
         );
         #[cfg(test)]
         let mut logs = BoundedLogQueue::new(200);
-        logs.push(
+        logs.push_with_config(
             LogLevel::Info,
             None,
             "Initialized Roblox Automator worker engine.",
+            &config,
         );
         Self {
             config,
@@ -350,7 +351,8 @@ impl EngineWorker {
                     return;
                 }
                 if self.config != config {
-                    self.logs.push(
+                    self.config = config.clone();
+                    self.logs.push_with_config(
                         LogLevel::Action,
                         None,
                         format!(
@@ -360,8 +362,8 @@ impl EngineWorker {
                             config.reconnect_cooldown_seconds,
                             config.anti_afk_interval_seconds
                         ),
+                        &self.config,
                     );
-                    self.config = config.clone();
                     if self.is_running_flag.load(Ordering::SeqCst) {
                         if self.config.anti_afk_enabled {
                             let new_interval =
@@ -401,10 +403,11 @@ impl EngineWorker {
                         .unwrap_or(now + new_interval);
                     self.global_afk_deadline = Some(capped);
                 }
-                self.logs.push(
+                self.logs.push_with_config(
                     LogLevel::Action,
                     None,
                     format!("Anti-AFK interval updated to {} min.", minutes),
+                    &self.config,
                 );
                 self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
                 self.ui_dirty = true;
@@ -430,10 +433,11 @@ impl EngineWorker {
                         .unwrap_or(now + new_interval);
                     self.next_scan_deadline = Some(capped);
                 }
-                self.logs.push(
+                self.logs.push_with_config(
                     LogLevel::Action,
                     None,
                     format!("Scan interval updated to {}s.", seconds),
+                    &self.config,
                 );
                 self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
                 self.ui_dirty = true;
@@ -452,7 +456,7 @@ impl EngineWorker {
                     return;
                 }
                 self.config = updated.clone();
-                self.logs.push(
+                self.logs.push_with_config(
                     LogLevel::Action,
                     None,
                     format!(
@@ -460,6 +464,7 @@ impl EngineWorker {
                         if enabled { "enabled" } else { "disabled" },
                         updated.event_target_keywords
                     ),
+                    &self.config,
                 );
                 self.ui_sink.emit(UiEvent::ConfigLoaded(updated));
                 self.ui_dirty = true;
@@ -566,7 +571,12 @@ impl EngineWorker {
                 self.config.macro_steps.clear();
                 self.config.macro_enabled = false;
                 let _ = StorageService::save_config(&self.config);
-                self.logs.push(LogLevel::Action, None, "Cleared recorded macro.");
+                self.logs.push_with_config(
+                    LogLevel::Action,
+                    None,
+                    "Cleared recorded macro.",
+                    &self.config,
+                );
                 self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
                 self.ui_dirty = true;
                 self.emit_snapshot(now);
@@ -577,10 +587,11 @@ impl EngineWorker {
                     self.ui_sink.emit(UiEvent::ActionError { message: err });
                     return;
                 }
-                self.logs.push(
+                self.logs.push_with_config(
                     LogLevel::Action,
                     None,
                     format!("Macro replay {}.", if enabled { "enabled" } else { "disabled" }),
+                    &self.config,
                 );
                 self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
                 self.ui_dirty = true;
@@ -641,7 +652,7 @@ impl EngineWorker {
         if !steps.is_empty() {
             self.config.macro_steps = steps;
             let _ = StorageService::save_config(&self.config);
-            self.logs.push(
+            self.logs.push_with_config(
                 LogLevel::Action,
                 None,
                 format!(
@@ -649,6 +660,7 @@ impl EngineWorker {
                     count,
                     (dur_ms as f64) / 1000.0
                 ),
+                &self.config,
             );
             self.ui_sink.emit(UiEvent::ConfigLoaded(self.config.clone()));
         } else {
