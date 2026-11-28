@@ -47,3 +47,9 @@ A lightweight Windows companion app that keeps your **Roblox** accounts online 2
 
 Need help, want to share setups, or chat with other users?  
 Join our Discord server: **https://discord.gg/ce5yGvTf9**
+
+---
+
+## Code Signing Policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), using a certificate by [SignPath Foundation](https://signpath.org/).

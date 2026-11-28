@@ -8,6 +8,9 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+### Added
+- `README.md`: added the **Code Signing Policy** section acknowledging SignPath.io and SignPath Foundation for open-source code signing.
+
 ---
 
 ## [0.4.1] - 2026-11-28
