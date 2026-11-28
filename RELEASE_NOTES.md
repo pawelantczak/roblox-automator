@@ -6,10 +6,6 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ## [Unreleased]
 
-### Fixed
-- **Improved Smart Click Event Detection on Bright Backgrounds**: Fixed an issue where white event labels over bright colored game surfaces (such as light-blue walkways) could be missed during fallback text recognition.
-- **More Accurate Smart Click Targeting on Compact Windows**: Fixed event icon targeting when labels are read with tight bounding boxes on `800×600` windows so clicks land squarely on the event icon instead of just above the text.
-
 ---
 
 ## [0.4.1] - 2026-11-28
