@@ -8,6 +8,10 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+---
+
+## [0.4.2] - 2026-11-28
+
 ### Fixed
 - `EngineWorker` (`src/engine/mod.rs`) & `resources/app.js`: emitted `StateSnapshot` immediately on `StartAutomator` before entering the first multi-window scan, drained `UiCommand`s and throttled `emit_snapshot` between windows inside `run_monitoring_cycle` and `TriggerTestJump`, and added a 1s client-side countdown ticker in `app.js` so Start/Stop responds immediately and `Next Scan` / `Anti-AFK` timers no longer freeze or skip seconds across 8+ windows.
 
@@ -100,6 +104,7 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 - `Classifier::find_event_target` & `IconTracer` (`src/engine/classifier.rs`, `src/engine/tracer.rs`, `src/ocr/mod.rs`):
   - Isolated matched keyword `word_boxes`, added bottom-up row-gap isolation in `IconTracer`, capped sidebar upscale at `2200px`, added luminance thresholding (`lum >= 180`) in `scan_left_sidebar_high_contrast`, and added fuzzy sliding-window matching (`edit_distance <= 2`).
 - Coordinate mapping in `src/engine/mod.rs` and `Win32CaptureService` (`src/capture/mod.rs`) for window-relative click dispatch and aspect-ratio preserved thumbnails.
+
 
 
 
