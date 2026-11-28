@@ -9,11 +9,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build Suite on Windows
+  build_and_test:
+    name: Build & Test on Windows
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      exe_artifact_id: ${{ steps.upload_exe.outputs.artifact-id }}
 
     steps:
       - name: Checkout Code
@@ -51,32 +54,64 @@ jobs:
       - name: Build Release Binary
         run: cargo build --release
 
-      - name: Upload Unsigned Binary (SignPath)
-        id: upload-unsigned
-        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+      - name: Upload Release Binary Artifact
+        id: upload_exe
         uses: actions/upload-artifact@v4
         with:
-          name: roblox-automator-unsigned-${{ steps.get_version.outputs.version }}
+          name: roblox-automator-exe-${{ steps.get_version.outputs.version }}
           path: target/release/roblox-automator.exe
-          retention-days: 1
+          retention-days: 14
+
+      - name: Package CI Archive (Non-Tag Runs)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.version }}"
+          $zipName = "Roblox-Automator-v$ver.zip"
+          Compress-Archive -Path target/release/roblox-automator.exe -DestinationPath $zipName -Force
+          Write-Host "Created CI archive: $zipName"
+
+      - name: Upload CI Zip Artifact
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: Roblox-Automator-v${{ steps.get_version.outputs.version }}
+          path: |
+            Roblox-Automator-v*.zip
+          retention-days: 14
+
+  sign_and_release:
+    name: Sign & Publish Release
+    needs: build_and_test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout RELEASE_NOTES.md
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            RELEASE_NOTES.md
 
       - name: Sign Release Binary (SignPath)
-        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        if: vars.SIGNPATH_ENABLED == 'true'
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          github-artifact-id: ${{ needs.build_and_test.outputs.exe_artifact_id }}
           wait-for-completion: true
-          output-artifact-directory: signed-output
+          output-artifact-directory: release-bin
 
       - name: Verify Code Signature
-        if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ENABLED == 'true'
+        if: vars.SIGNPATH_ENABLED == 'true'
         shell: pwsh
         run: |
-          $signedExe = "signed-output/roblox-automator.exe"
+          $signedExe = "release-bin/roblox-automator.exe"
           if (-not (Test-Path $signedExe)) {
             throw "Expected signed binary at $signedExe"
           }
@@ -86,32 +121,25 @@ jobs:
             throw "Authenticode signature verification failed: $($sig.StatusMessage)"
           }
 
+      - name: Download Unsigned Binary (SignPath Disabled)
+        if: vars.SIGNPATH_ENABLED != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: roblox-automator-exe-${{ needs.build_and_test.outputs.version }}
+          path: release-bin
+
       - name: Package Release Archive
         shell: pwsh
         run: |
-          $ver = "${{ steps.get_version.outputs.version }}"
+          $ver = "${{ needs.build_and_test.outputs.version }}"
           $zipName = "Roblox-Automator-v$ver.zip"
-          $exeSource = if (Test-Path "signed-output/roblox-automator.exe") {
-            "signed-output/roblox-automator.exe"
-          } else {
-            "target/release/roblox-automator.exe"
-          }
-          Compress-Archive -Path $exeSource -DestinationPath $zipName -Force
-          Write-Host "Created archive: $zipName containing roblox-automator.exe (source: $exeSource)"
-
-      - name: Upload Build Artifacts (CI)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Roblox-Automator-v${{ steps.get_version.outputs.version }}
-          path: |
-            Roblox-Automator-v*.zip
-          retention-days: 14
+          Compress-Archive -Path release-bin/roblox-automator.exe -DestinationPath $zipName -Force
+          Write-Host "Created release archive: $zipName"
 
       - name: Extract Release Notes from RELEASE_NOTES.md
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          $ver = "${{ steps.get_version.outputs.version }}".TrimStart('v')
+          $ver = "${{ needs.build_and_test.outputs.version }}".TrimStart('v')
           $releaseNotes = Get-Content RELEASE_NOTES.md -Raw
           $pattern = "(?s)## \[$ver\][^\n]*\n(.*?)(?=\n## \[|\Z)"
           if ($releaseNotes -match $pattern) {
@@ -129,11 +157,10 @@ jobs:
           Write-Host "Extracted release notes:"
           Write-Host $notes
 
-      - name: Publish GitHub Release (Tags Only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Roblox Automator v${{ steps.get_version.outputs.version }}
+          name: Roblox Automator v${{ needs.build_and_test.outputs.version }}
           body_path: RELEASE_NOTES_BODY.md
           generate_release_notes: true
           files: |
