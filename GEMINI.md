@@ -59,7 +59,8 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
    - Do **NOT** create, move, delete, or push Git tags (never run `git tag`, `git tag -f`, `git push origin <tag>`, or `git push --tags`).
    - Tagging is strictly reserved for the human user.
 2. **ALWAYS UPDATE CHANGELOG.md (TECHNICAL)**:
-   - Every feature, fix, or breaking change must be documented under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+   - Every code, UI, config, or CI/build feature, fix, or breaking change must be documented under `## [Unreleased]` in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md) adhering to the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+   - Documentation-only edits (`README.md`, `docs/`, `GEMINI.md`) do **not** require `CHANGELOG.md` entries and must never be placed under `### Added`.
    - **Fully Technical**: Write `CHANGELOG.md` entries for engineers and maintainers — include affected modules, symbols, traits, IPC/config fields, CSS/DOM details, and implementation specifics.
 3. **ALWAYS UPDATE GEMINI.md**:
    - Any architectural change, new script, configuration field, or rule modification must be recorded in this file ([GEMINI.md](file:///C:/Users/pawel/Sources/roblox-watcher/GEMINI.md)).
@@ -71,7 +72,7 @@ Roblox Automator is a high-performance native Windows automation and monitoring 
    - When the user explicitly requests a version bump:
      - Determine the semver increment strictly from the `[Unreleased]` entries in [CHANGELOG.md](file:///C:/Users/pawel/Sources/roblox-watcher/CHANGELOG.md):
        - Only fixes (`### Fixed`) → **patch** (`x.y.Z`).
-       - Any new features or capabilities (`### Added`) → **minor** (`x.Y.0`).
+       - Any new application/build features or capabilities (`### Added`) → **minor** (`x.Y.0`). Documentation-only changes never drive a version bump.
        - Breaking architectural changes → **major** (`X.0.0`).
      - Synthesize/update the end-user friendly entries under `## [Unreleased]` in [RELEASE_NOTES.md](file:///C:/Users/pawel/Sources/roblox-watcher/RELEASE_NOTES.md) from `CHANGELOG.md`, then run `./bump.ps1` (or `./bump.sh`) to stamp the new version across `VERSION`, `Cargo.toml`, `CHANGELOG.md`, and `RELEASE_NOTES.md`.
 5. **MODULAR ARCHITECTURE & FILE BUDGET**:

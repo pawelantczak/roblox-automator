@@ -8,9 +8,6 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
-### Added
-- `README.md`: added the **Code Signing Policy** section acknowledging SignPath.io and SignPath Foundation for open-source code signing.
-
 ### Fixed
 - `EngineWorker` (`src/engine/mod.rs`) & `resources/app.js`: emitted `StateSnapshot` immediately on `StartAutomator` before entering the first multi-window scan, drained `UiCommand`s and throttled `emit_snapshot` between windows inside `run_monitoring_cycle` and `TriggerTestJump`, and added a 1s client-side countdown ticker in `app.js` so Start/Stop responds immediately and `Next Scan` / `Anti-AFK` timers no longer freeze or skip seconds across 8+ windows.
 
