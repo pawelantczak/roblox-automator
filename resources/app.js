@@ -6,6 +6,22 @@
   let logsPaused = false;
   let isProgrammaticScroll = false;
   let pendingLogs = [];
+  let localScanRem = null;
+  let localAfkRem = null;
+
+  setInterval(() => {
+    if (!isRunning) return;
+    if (localScanRem !== null && localScanRem > 0) {
+      localScanRem -= 1;
+      const scanEl = document.getElementById('ribbonScanStatus');
+      if (scanEl) scanEl.textContent = `${localScanRem}s`;
+    }
+    if (localAfkRem !== null && localAfkRem > 0) {
+      localAfkRem -= 1;
+      const afkEl = document.getElementById('ribbonAfkStatus');
+      if (afkEl) afkEl.textContent = formatDuration(localAfkRem);
+    }
+  }, 1000);
 
   function sendCommand(cmd) {
     if (window.ipc && window.ipc.postMessage) {
@@ -361,11 +377,12 @@
     }
     const scanStatusEl = document.getElementById('ribbonScanStatus');
     if (!isRunning) {
+      localScanRem = null;
       scanStatusEl.textContent = 'PAUSED';
       scanStatusEl.style.color = '#94a3b8';
     } else {
-      const rem = data.nextScanRemainingSecs ?? 0;
-      scanStatusEl.textContent = `${rem}s`;
+      localScanRem = data.nextScanRemainingSecs ?? 0;
+      scanStatusEl.textContent = `${localScanRem}s`;
       scanStatusEl.style.color = '#38bdf8';
     }
 
@@ -384,13 +401,16 @@
 
     const afkStatusEl = document.getElementById('ribbonAfkStatus');
     if (!data.antiAfkEnabled) {
+      localAfkRem = null;
       afkStatusEl.textContent = 'OFF';
       afkStatusEl.style.color = '#64748b';
     } else if (!isRunning) {
+      localAfkRem = null;
       afkStatusEl.textContent = 'PAUSED';
       afkStatusEl.style.color = '#94a3b8';
     } else {
-      afkStatusEl.textContent = formatDuration(data.nextAfkRemainingSecs);
+      localAfkRem = data.nextAfkRemainingSecs ?? 0;
+      afkStatusEl.textContent = formatDuration(localAfkRem);
       afkStatusEl.style.color = '#38bdf8';
     }
 

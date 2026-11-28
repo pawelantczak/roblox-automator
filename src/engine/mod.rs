@@ -268,12 +268,8 @@ impl EngineWorker {
                         "Automator started. Windows sleep prevention active.",
                     );
                     self.discover_and_sync_windows(now, true);
-                    self.run_monitoring_cycle(now);
-                    self.next_scan_deadline = Some(
-                        Instant::now()
-                            + Duration::from_secs_f64(self.config.check_interval_seconds),
-                    );
-                    self.ui_dirty = true;
+                    self.next_scan_deadline = None;
+                    self.ui_dirty = false;
                     self.emit_snapshot(now);
                 }
             }
@@ -309,7 +305,12 @@ impl EngineWorker {
                         windows.len()
                     ),
                 );
+                let mut last_ui_emit = Instant::now();
                 for win in windows {
+                    self.drain_commands();
+                    if self.shutdown_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
                     match self.input_svc.anti_afk_jump(win.hwnd) {
                         Ok(()) => {
                             self.metrics.anti_afk_jumps += 1;
@@ -322,6 +323,11 @@ impl EngineWorker {
                                 format!("Test jump failed: {}", reason),
                             );
                         }
+                    }
+                    if last_ui_emit.elapsed() >= Duration::from_millis(self.config.ui_refresh_interval_ms) {
+                        let t_now = Instant::now();
+                        self.emit_snapshot(t_now);
+                        last_ui_emit = t_now;
                     }
                 }
                 if self.is_running_flag.load(Ordering::SeqCst) && self.config.anti_afk_enabled {
@@ -768,8 +774,12 @@ impl EngineWorker {
         let afk_interval = Duration::from_secs_f64(self.config.anti_afk_interval_seconds);
         let cooldown = Duration::from_secs_f64(self.config.reconnect_cooldown_seconds);
 
+        let mut last_ui_emit = Instant::now();
         for (idx, win) in windows.into_iter().enumerate() {
-            if self.shutdown_flag.load(Ordering::Relaxed) {
+            self.drain_commands();
+            if self.shutdown_flag.load(Ordering::Relaxed)
+                || !self.is_running_flag.load(Ordering::SeqCst)
+            {
                 break;
             }
             let win_num = idx + 1;
@@ -1229,6 +1239,12 @@ impl EngineWorker {
                 }
                 tracker.event_status = event_status;
                 tracker.transition_to(InstanceState::Healthy, None, now);
+            }
+
+            if last_ui_emit.elapsed() >= Duration::from_millis(self.config.ui_refresh_interval_ms) {
+                let t_now = Instant::now();
+                self.emit_snapshot(t_now);
+                last_ui_emit = t_now;
             }
         }
 
