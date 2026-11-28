@@ -75,4 +75,21 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_corrupt_json_falls_back_to_default_and_leaves_no_tmp() {
+        let dir = std::env::temp_dir().join("roblox_watcher_storage_corrupt_test");
+        let _ = fs::create_dir_all(&dir);
+        let cfg_path = dir.join("config.json");
+        let tmp_path = cfg_path.with_extension("json.tmp");
+        let _ = fs::remove_file(&cfg_path);
+
+        fs::write(&cfg_path, "{ not valid json !!!").unwrap();
+        let loaded = StorageService::load_from_path(&cfg_path);
+        assert_eq!(loaded, Config::default());
+        assert!(cfg_path.exists());
+        assert!(!tmp_path.exists(), "temp file should be renamed away");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

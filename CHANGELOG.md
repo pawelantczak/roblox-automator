@@ -8,6 +8,9 @@ End-user release announcements are maintained in [RELEASE_NOTES.md](RELEASE_NOTE
 
 ## [Unreleased]
 
+### Added
+- Expanded unit & mock-integration test suite across `src/engine/tracer.rs`, `src/engine/mod.rs`, `src/capture/mod.rs`, `src/window/mod.rs`, `src/input/mod.rs`, `src/input/recorder.rs`, `src/models/vision.rs`, `src/models/macro_seq.rs`, `src/storage.rs`, and `src/ui/webview.rs` (40 tests total: 39 active + 1 ignored live test), extracting pure helper seams (`is_allowed_external_url`, `is_allowed_webview_uri`, `is_discoverable_rect`, `compute_instance_id`, `normalize_point_in_client_rect`, `should_record_mouse_move`, `pack_client_lparam`) for headless verification.
+
 ---
 
 ## [0.4.2] - 2026-11-28

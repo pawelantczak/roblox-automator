@@ -203,3 +203,72 @@ impl IconTracer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn white_frame(w: i32, h: i32) -> CapturedFrame {
+        CapturedFrame::new(w, h, vec![255u8; (w * h * 4) as usize])
+    }
+
+    fn draw_dark_box(frame: &mut CapturedFrame, x0: i32, y0: i32, x1: i32, y1: i32) {
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                if x == x0 || x == x1 || y == y0 || y == y1 {
+                    let idx = ((y * frame.width + x) * 4) as usize;
+                    frame.rgba_data[idx] = 10;
+                    frame.rgba_data[idx + 1] = 10;
+                    frame.rgba_data[idx + 2] = 10;
+                    frame.rgba_data[idx + 3] = 255;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_trace_icon_bounds_finds_dark_outline_above_tight_text() {
+        let mut frame = white_frame(300, 300);
+        // 40x40 cartoon outline icon at x=130..170, y=140..180
+        draw_dark_box(&mut frame, 130, 140, 170, 180);
+        // Tight 9px caption directly below at x=125..175, y=190..199
+        let text_box = NormalizedRect::new(125.0 / 300.0, 190.0 / 300.0, 175.0 / 300.0, 199.0 / 300.0);
+
+        let (traced_box, center) =
+            IconTracer::trace_icon_bounds(&frame, &text_box).expect("should trace dark outline");
+        assert!((center.x - 0.5).abs() < 0.03, "expected center.x ~ 0.5, got {}", center.x);
+        assert!((center.y - (160.0 / 300.0)).abs() < 0.03, "expected center.y ~ 0.533, got {}", center.y);
+        assert!(traced_box.min_y < text_box.min_y);
+    }
+
+    #[test]
+    fn test_trace_icon_bounds_isolates_from_upper_and_side_noise() {
+        let mut frame = white_frame(300, 300);
+        // Target icon
+        draw_dark_box(&mut frame, 130, 150, 170, 185);
+        // Upper unrelated button separated by gap
+        draw_dark_box(&mut frame, 130, 100, 170, 120);
+        // Side unrelated icon separated by column gap
+        draw_dark_box(&mut frame, 50, 150, 80, 185);
+
+        let text_box = NormalizedRect::new(125.0 / 300.0, 192.0 / 300.0, 175.0 / 300.0, 205.0 / 300.0);
+        let (traced_box, _) =
+            IconTracer::trace_icon_bounds(&frame, &text_box).expect("should isolate central icon");
+        assert!(traced_box.min_y >= 145.0 / 300.0, "should stop below upper button");
+        assert!(traced_box.min_x >= 120.0 / 300.0, "should stop right of side icon");
+    }
+
+    #[test]
+    fn test_refine_target_falls_back_when_no_outline() {
+        let frame = white_frame(200, 200);
+        let orig = DetectedText {
+            text: "Event".to_string(),
+            bounding_box: NormalizedRect::new(0.1, 0.5, 0.2, 0.55),
+            target_point: Some(NormalizedPoint { x: 0.15, y: 0.45 }),
+            whole_icon_box: None,
+            word_boxes: vec![],
+        };
+        let refined = IconTracer::refine_target(orig.clone(), &frame);
+        assert_eq!(refined, orig);
+    }
+}

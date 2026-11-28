@@ -52,3 +52,45 @@ impl MacroStep {
         steps.iter().map(|s| s.delay_ms()).sum()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_macro_step_serde_roundtrip_and_total_duration() {
+        let steps = vec![
+            MacroStep::Key {
+                vk: 0x20,
+                scan_code: 0x39,
+                extended: false,
+                down: true,
+                delay_ms: 50,
+            },
+            MacroStep::MouseMove {
+                nx: 0.25,
+                ny: 0.75,
+                delay_ms: 120,
+            },
+            MacroStep::MouseButton {
+                button: MouseBtn::Right,
+                down: true,
+                nx: 0.5,
+                ny: 0.5,
+                delay_ms: 30,
+            },
+            MacroStep::MouseWheel {
+                delta: -120,
+                nx: 0.5,
+                ny: 0.5,
+                delay_ms: 100,
+            },
+        ];
+
+        assert_eq!(MacroStep::total_duration_ms(&steps), 300);
+        let json = serde_json::to_string(&steps).expect("serialize macro");
+        let parsed: Vec<MacroStep> = serde_json::from_str(&json).expect("deserialize macro");
+        assert_eq!(parsed, steps);
+        assert_eq!(MacroStep::total_duration_ms(&[]), 0);
+    }
+}

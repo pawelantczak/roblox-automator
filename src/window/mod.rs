@@ -138,7 +138,7 @@ impl WindowDiscovery for Win32WindowService {
                 let ww = win_rect.right - win_rect.left;
                 let wh = win_rect.bottom - win_rect.top;
 
-                if cw >= 200 && ch >= 200 && ww >= 200 && wh >= 200 {
+                if is_discoverable_rect(cw, ch, ww, wh) {
                     let len = GetWindowTextLengthW(hwnd);
                     let title = if len > 0 {
                         let mut buf = vec![0u16; (len + 1) as usize];
@@ -149,7 +149,7 @@ impl WindowDiscovery for Win32WindowService {
                     };
 
                     // Stable instance ID combining PID and HWND handle value (never exposed as raw HWND to JS)
-                    let instance_id = ((pid as u64) << 32) ^ (hwnd.0 as usize as u64);
+                    let instance_id = compute_instance_id(pid, hwnd.0 as usize);
 
                     ctx.windows.push(RobloxWindowInfo {
                         instance_id,
@@ -226,5 +226,31 @@ impl WindowDiscovery for Win32WindowService {
             .map_err(|e| format!("SetWindowPos failed: {}", e))?;
         }
         Ok(())
+    }
+}
+
+pub fn is_discoverable_rect(cw: i32, ch: i32, ww: i32, wh: i32) -> bool {
+    cw >= 200 && ch >= 200 && ww >= 200 && wh >= 200
+}
+
+pub fn compute_instance_id(pid: u32, hwnd_raw: usize) -> u64 {
+    ((pid as u64) << 32) ^ (hwnd_raw as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_window_discovery_helpers() {
+        assert!(is_discoverable_rect(800, 600, 816, 639));
+        assert!(!is_discoverable_rect(199, 600, 800, 600));
+        assert!(!is_discoverable_rect(800, 150, 800, 600));
+
+        let id1 = compute_instance_id(1234, 0xABCD);
+        let id2 = compute_instance_id(1234, 0xABCE);
+        let id3 = compute_instance_id(1235, 0xABCD);
+        assert_ne!(id1, id2);
+        assert_ne!(id1, id3);
     }
 }

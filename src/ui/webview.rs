@@ -28,6 +28,18 @@ pub fn build_bundled_html() -> String {
         .replace("__APP_ICON_DATA_URI__", &icon_data_uri)
 }
 
+pub fn is_allowed_external_url(uri: &str) -> bool {
+    let trimmed = uri.trim_end_matches('/');
+    matches!(
+        trimmed,
+        "https://ps99clan.xyz" | "https://discord.gg/ce5yGvTf9"
+    )
+}
+
+pub fn is_allowed_webview_uri(uri: &str) -> bool {
+    uri == "about:blank" || uri.starts_with("data:")
+}
+
 pub fn create_webview(
     window: &Window,
     engine_handle: EngineHandle,
@@ -39,13 +51,13 @@ pub fn create_webview(
         .with_html(bundled_html)
         .with_navigation_handler(|uri| {
             let trimmed = uri.trim_end_matches('/');
-            if matches!(trimmed, "https://ps99clan.xyz" | "https://discord.gg/ce5yGvTf9") {
+            if is_allowed_external_url(trimmed) {
                 let _ = std::process::Command::new("explorer")
                     .arg(trimmed)
                     .spawn();
                 return false;
             }
-            uri == "about:blank" || uri.starts_with("data:")
+            is_allowed_webview_uri(&uri)
         })
         .with_ipc_handler(move |msg| match UiCommand::parse_and_validate(msg.body().as_str()) {
             Ok(cmd) => {
@@ -72,5 +84,30 @@ pub fn dispatch_event_to_webview(webview: &WebView, event: &UiEvent) {
             json
         );
         let _ = webview.evaluate_script(&script);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_navigation_allowlist_and_bundled_html_assets() {
+        assert!(is_allowed_external_url("https://ps99clan.xyz"));
+        assert!(is_allowed_external_url("https://ps99clan.xyz/"));
+        assert!(is_allowed_external_url("https://discord.gg/ce5yGvTf9"));
+        assert!(!is_allowed_external_url("https://evil.example.com"));
+
+        assert!(is_allowed_webview_uri("about:blank"));
+        assert!(is_allowed_webview_uri("data:text/html,hi"));
+        assert!(!is_allowed_webview_uri("https://ps99clan.xyz"));
+
+        let html = build_bundled_html();
+        assert!(!html.contains("/* __LOCAL_CSS__ */"));
+        assert!(!html.contains("/* __LOCAL_JS__ */"));
+        assert!(!html.contains("__APP_ICON_DATA_URI__"));
+        assert!(html.contains("data:image/png;base64,"));
+        assert!(html.contains("Content-Security-Policy"));
+        assert!(html.contains("window.handleNativeEvent"));
     }
 }

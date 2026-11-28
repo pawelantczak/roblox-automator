@@ -290,9 +290,7 @@ impl InputAutomation for Win32InputService {
                         let _ = SetCursorPos(pt.x, pt.y);
                         let mut c_pt = pt;
                         let _ = ScreenToClient(hwnd, &mut c_pt);
-                        let lp = LPARAM(
-                            (((c_pt.y as isize) & 0xFFFF) << 16) | ((c_pt.x as isize) & 0xFFFF),
-                        );
+                        let lp = LPARAM(pack_client_lparam(c_pt.x, c_pt.y));
                         let _ = PostMessageW(hwnd, WM_MOUSEMOVE, WPARAM(0), lp);
                     }
                     MacroStep::MouseButton {
@@ -365,9 +363,7 @@ impl InputAutomation for Win32InputService {
                 y: screen_y,
             };
             let _ = ScreenToClient(hwnd, &mut client_pt);
-            let client_lparam = LPARAM(
-                (((client_pt.y as isize) & 0xFFFF) << 16) | ((client_pt.x as isize) & 0xFFFF),
-            );
+            let client_lparam = LPARAM(pack_client_lparam(client_pt.x, client_pt.y));
 
             Self::move_mouse_to(screen_x, screen_y);
             let _ = PostMessageW(hwnd, WM_MOUSEMOVE, WPARAM(0), client_lparam);
@@ -444,5 +440,19 @@ impl InputAutomation for Win32InputService {
         }
 
         Ok(())
+    }
+}
+
+pub fn pack_client_lparam(cx: i32, cy: i32) -> isize {
+    (((cy as isize) & 0xFFFF) << 16) | ((cx as isize) & 0xFFFF)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_input_lparam_helper() {
+        assert_eq!(pack_client_lparam(400, 300), (300isize << 16) | 400isize);
     }
 }

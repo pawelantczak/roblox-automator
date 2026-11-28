@@ -123,6 +123,9 @@ impl ScreenCapture for Win32CaptureService {
         max_h: u32,
         quality: u8,
     ) -> Option<String> {
+        if frame.width <= 0 || frame.height <= 0 {
+            return None;
+        }
         let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(frame.width as u32, frame.height as u32, frame.rgba_data.clone())?;
 
@@ -146,6 +149,9 @@ impl ScreenCapture for Win32CaptureService {
         radius_px: u32,
         quality: u8,
     ) -> Option<String> {
+        if frame.width <= 0 || frame.height <= 0 {
+            return None;
+        }
         let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(frame.width as u32, frame.height as u32, frame.rgba_data.clone())?;
 
@@ -189,5 +195,35 @@ impl ScreenCapture for Win32CaptureService {
         rgb.write_with_encoder(encoder).ok()?;
 
         Some(BASE64_STANDARD.encode(jpeg_bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_thumbnail_and_point_crop_base64() {
+        let svc = Win32CaptureService;
+        let frame = CapturedFrame::new(160, 120, vec![180u8; 160 * 120 * 4]);
+
+        let thumb = svc
+            .encode_thumbnail_base64(&frame, 80, 60, 70)
+            .expect("thumbnail should encode");
+        let decoded = BASE64_STANDARD.decode(&thumb).expect("valid base64");
+        assert!(decoded.starts_with(&[0xFF, 0xD8]), "expected JPEG SOI header");
+
+        // Edge-clamped crops at corners should succeed cleanly
+        let crop_tl = svc.encode_point_crop_base64(&frame, &NormalizedPoint { x: 0.0, y: 0.0 }, 20, 75);
+        let crop_br = svc.encode_point_crop_base64(&frame, &NormalizedPoint { x: 1.0, y: 1.0 }, 20, 75);
+        assert!(crop_tl.is_some());
+        assert!(crop_br.is_some());
+
+        // Zero-dimension / invalid frame returns None
+        let empty = CapturedFrame::new(0, 0, vec![]);
+        assert!(svc.encode_thumbnail_base64(&empty, 80, 60, 70).is_none());
+        assert!(svc
+            .encode_point_crop_base64(&empty, &NormalizedPoint { x: 0.5, y: 0.5 }, 20, 75)
+            .is_none());
     }
 }

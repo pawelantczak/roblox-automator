@@ -401,26 +401,38 @@ unsafe extern "system" fn overlay_wnd_proc(
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
+pub fn normalize_point_in_client_rect(x: i32, y: i32, cw: i32, ch: i32) -> Option<(f32, f32)> {
+    if cw <= 0 || ch <= 0 || x < 0 || y < 0 || x >= cw || y >= ch {
+        return None;
+    }
+    Some((
+        (x as f32 / cw as f32).clamp(0.0, 1.0),
+        (y as f32 / ch as f32).clamp(0.0, 1.0),
+    ))
+}
+
+pub fn should_record_mouse_move(
+    elapsed_ms: u128,
+    last_pt: Option<(i32, i32)>,
+    cur_pt: (i32, i32),
+) -> bool {
+    let moved_enough = last_pt
+        .map(|(lx, ly)| (lx - cur_pt.0).abs() >= 4 || (ly - cur_pt.1).abs() >= 4)
+        .unwrap_or(true);
+    elapsed_ms >= 25 && moved_enough
+}
+
 fn normalize_client_point(hwnd: HWND, screen_pt: POINT) -> Option<(f32, f32)> {
     unsafe {
         let mut client = RECT::default();
         GetClientRect(hwnd, &mut client).ok()?;
         let cw = client.right - client.left;
         let ch = client.bottom - client.top;
-        if cw <= 0 || ch <= 0 {
-            return None;
-        }
         let mut pt = screen_pt;
         if !ScreenToClient(hwnd, &mut pt).as_bool() {
             return None;
         }
-        if pt.x < 0 || pt.y < 0 || pt.x >= cw || pt.y >= ch {
-            return None;
-        }
-        Some((
-            (pt.x as f32 / cw as f32).clamp(0.0, 1.0),
-            (pt.y as f32 / ch as f32).clamp(0.0, 1.0),
-        ))
+        normalize_point_in_client_rect(pt.x, pt.y, cw, ch)
     }
 }
 
@@ -482,11 +494,11 @@ unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARA
                 match msg {
                     WM_MOUSEMOVE => {
                         let elapsed_move = now.duration_since(st.last_move_at).as_millis();
-                        let moved_enough = st
-                            .last_move_pt
-                            .map(|p| (p.x - ms.pt.x).abs() >= 4 || (p.y - ms.pt.y).abs() >= 4)
-                            .unwrap_or(true);
-                        if elapsed_move >= 25 && moved_enough {
+                        if should_record_mouse_move(
+                            elapsed_move,
+                            st.last_move_pt.map(|p| (p.x, p.y)),
+                            (ms.pt.x, ms.pt.y),
+                        ) {
                             let delay_ms = now.duration_since(st.last_event_at).as_millis() as u64;
                             st.last_event_at = now;
                             st.last_move_at = now;
@@ -531,4 +543,28 @@ unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARA
         });
     }
     CallNextHookEx(None, code, wparam, lparam)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_point_in_client_rect_bounds() {
+        assert_eq!(normalize_point_in_client_rect(400, 300, 800, 600), Some((0.5, 0.5)));
+        assert_eq!(normalize_point_in_client_rect(0, 0, 800, 600), Some((0.0, 0.0)));
+        assert!(normalize_point_in_client_rect(-1, 100, 800, 600).is_none());
+        assert!(normalize_point_in_client_rect(800, 100, 800, 600).is_none());
+        assert!(normalize_point_in_client_rect(100, 600, 800, 600).is_none());
+        assert!(normalize_point_in_client_rect(10, 10, 0, 600).is_none());
+    }
+
+    #[test]
+    fn test_should_record_mouse_move_throttles_time_and_distance() {
+        assert!(should_record_mouse_move(25, None, (100, 100)));
+        assert!(!should_record_mouse_move(10, None, (100, 100)));
+        assert!(!should_record_mouse_move(30, Some((100, 100)), (102, 103)));
+        assert!(should_record_mouse_move(30, Some((100, 100)), (104, 100)));
+        assert!(should_record_mouse_move(30, Some((100, 100)), (100, 104)));
+    }
 }

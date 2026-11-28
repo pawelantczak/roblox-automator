@@ -97,3 +97,44 @@ impl CapturedFrame {
         hash
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalized_rect_geometry_and_click_point() {
+        let r = NormalizedRect::new(0.2, 0.4, 0.6, 0.8);
+        assert!((r.mid_x() - 0.4).abs() < 1e-6);
+        assert!((r.mid_y() - 0.6).abs() < 1e-6);
+        assert!((r.width() - 0.4).abs() < 1e-6);
+        assert!((r.height() - 0.4).abs() < 1e-6);
+
+        let fallback = DetectedText {
+            text: "Btn".into(),
+            bounding_box: r.clone(),
+            target_point: None,
+            whole_icon_box: None,
+            word_boxes: vec![],
+        };
+        assert_eq!(fallback.click_point(), NormalizedPoint { x: 0.4, y: 0.6 });
+
+        let explicit = DetectedText {
+            target_point: Some(NormalizedPoint { x: 0.11, y: 0.22 }),
+            ..fallback
+        };
+        assert_eq!(explicit.click_point(), NormalizedPoint { x: 0.11, y: 0.22 });
+    }
+
+    #[test]
+    fn test_captured_frame_sampled_hash_detects_changes() {
+        let f1 = CapturedFrame::new(64, 64, vec![10u8; 64 * 64 * 4]);
+        let f2 = CapturedFrame::new(64, 64, vec![10u8; 64 * 64 * 4]);
+        assert_eq!(f1.frame_hash, f2.frame_hash);
+
+        let mut modified = vec![10u8; 64 * 64 * 4];
+        modified[64] = 250;
+        let f3 = CapturedFrame::new(64, 64, modified);
+        assert_ne!(f1.frame_hash, f3.frame_hash);
+    }
+}
