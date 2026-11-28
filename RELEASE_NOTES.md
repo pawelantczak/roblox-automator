@@ -6,9 +6,12 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ## [Unreleased]
 
-### Fixed
-- **Instant Start & Smoother UI With Many Windows**: Eliminated the lag after clicking **Start** and kept the dashboard responsive while scanning 8+ Roblox windows.
-- **Smooth Countdown Timers**: Fixed the **Next Scan** and **Anti-AFK** countdowns skipping seconds during multi-window scans.
+---
+
+## [0.5.0] - 2026-11-28
+
+### Changed
+- **Improved Reliability & Automated Testing**: Expanded automated verification across core reconnection, Smart Click, macro replay, and screen-capture workflows before every release build.
 
 ---
 
@@ -97,6 +100,7 @@ User-facing release notes for **Roblox Automator**. Each version section is publ
 
 ### Removed
 - **System Tray Integration**: Removed the Windows system tray icon and minimize-to-tray behavior; closing the dashboard window now exits the application directly.
+
 
 
 
