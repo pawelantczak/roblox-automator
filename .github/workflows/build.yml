@@ -45,6 +45,9 @@ jobs:
           echo "version=$VERSION" >> $env:GITHUB_OUTPUT
           Write-Host "Building version $VERSION"
 
+      - name: Run Unit & Mock Integration Tests
+        run: cargo test
+
       - name: Build Release Binary
         run: cargo build --release
 
